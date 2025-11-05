@@ -93,6 +93,8 @@ function monitorServerTime() {
     if (!db) return;
 
     const offsetRef = db.ref('.info/serverTimeOffset');
+
+    // Initial read
     offsetRef.on('value', (snapshot) => {
         const firebaseOffset = snapshot.val(); // Firebase's estimate of our clock offset (ms)
 
@@ -117,6 +119,20 @@ function monitorServerTime() {
 
         updateSyncStatus();
     });
+
+    // Periodically re-check offset to catch clock drift (every 10 seconds)
+    setInterval(() => {
+        offsetRef.once('value', (snapshot) => {
+            const firebaseOffset = snapshot.val();
+            const oldOffset = serverTimeOffset;
+            serverTimeOffset = SYNC_FILTER_K * serverTimeOffset + (1 - SYNC_FILTER_K) * firebaseOffset;
+
+            // Only log if offset changed significantly (>5ms)
+            if (Math.abs(firebaseOffset - oldOffset) > 5) {
+                console.log(`Time drift detected: ${firebaseOffset}ms (filtered: ${Math.round(serverTimeOffset)}ms)`);
+            }
+        });
+    }, 10000);
 }
 
 // Get current synchronized time (in milliseconds)
@@ -145,7 +161,7 @@ let db = null;
 let serverTimeOffset = 0;        // Our offset from Firebase server time (ms)
 let isSynced = false;            // Whether we have achieved sync
 let syncSampleCount = 0;         // Number of sync samples received
-const SYNC_SAMPLES_NEEDED = 3;  // Samples needed before considered synced
+const SYNC_SAMPLES_NEEDED = 1;  // Firebase offset is already accurate, only need 1 sample
 const SYNC_FILTER_K = 0.75;      // Filter constant: higher = slower to adapt
 
 document.addEventListener('DOMContentLoaded', () => {
