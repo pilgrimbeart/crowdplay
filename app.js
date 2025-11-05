@@ -184,6 +184,11 @@ let currentSource = null;  // Currently playing AudioBufferSourceNode
 let audioFilesLoaded = false;  // Whether all audio files have been preloaded
 let audioLoadProgress = { loaded: 0, total: 0 };  // Track loading progress
 
+// Flash state (for time sync testing)
+let flashIntervalId = null;  // Interval for repeating flashes
+let flashStartTime = null;  // Synced time when flashes should start
+let flashInterval = 3000;  // Time between flashes in ms
+
 // Drum hit detection (Participant only)
 let lastDrumHitTime = 0;  // Last time we sent a drum hit event
 const DRUM_THROTTLE_MS = 500;  // Minimum time between drum hits (0.5s)
@@ -276,6 +281,9 @@ function setupConductorKeyboard() {
         } else if (key === 's') {
             console.log('Stopping audio');
             sendCommand({ type: 'stopAudio' });
+        } else if (key === 'f') {
+            console.log('Triggering synchronized flash');
+            triggerFlash();
         }
     });
 }
@@ -299,6 +307,27 @@ function triggerAudioPlayback() {
         file: 'samples/clap.mp3',
         startTime: startTime,
         loop: true
+    });
+}
+
+// Trigger synchronized flash on all clients
+function triggerFlash() {
+    if (!isSynced) {
+        console.error('Cannot trigger flash: not yet time-synced');
+        return;
+    }
+
+    // Calculate start time: current time + 2x the 95th percentile latency (safety buffer)
+    const latency95th = calculate95thPercentileLatency();
+    const buffer = Math.max(latency95th * 2, 500);  // Minimum 500ms buffer
+    const startTime = getSyncedTime() + buffer;
+
+    console.log(`Scheduling flash to start in ${Math.round(buffer)}ms, repeating every 3000ms`);
+
+    sendCommand({
+        type: 'flash',
+        startTime: startTime,
+        interval: 3000  // Flash every 3 seconds
     });
 }
 
@@ -506,6 +535,8 @@ function handleProjectorCommand(command) {
     } else if (command.type === 'drumHit') {
         // Play drum sound when participant hits drum
         playDrumSound();
+    } else if (command.type === 'flash') {
+        startFlashing(command.startTime, command.interval);
     }
 }
 
@@ -762,6 +793,8 @@ function handleCommand(command) {
         if (command.value === 'black' || command.value === 'white') {
             statusEl.style.display = 'none';
         }
+    } else if (command.type === 'flash') {
+        startFlashing(command.startTime, command.interval);
     }
 }
 
@@ -949,6 +982,74 @@ function playDrumSound() {
     drumSource.start(audioContext.currentTime);
 
     console.log('Drum sound played');
+}
+
+// Start synchronized flashing (for time sync testing)
+function startFlashing(startTime, interval) {
+    // Stop any existing flash
+    stopFlashing();
+
+    flashStartTime = startTime;
+    flashInterval = interval;
+
+    console.log(`Starting synchronized flash at ${startTime}, every ${interval}ms`);
+
+    // Function to check if it's time to flash
+    const checkAndFlash = () => {
+        const now = getSyncedTime();
+        const elapsed = now - flashStartTime;
+
+        if (elapsed < 0) {
+            // Not time yet, check again soon
+            setTimeout(checkAndFlash, Math.max(10, -elapsed));
+            return;
+        }
+
+        // Calculate how far into the current cycle we are
+        const cyclePosition = elapsed % flashInterval;
+
+        // If we're within 50ms of a flash time, trigger it
+        if (cyclePosition < 50) {
+            doFlash();
+            // Schedule next check after this cycle
+            setTimeout(checkAndFlash, flashInterval - cyclePosition + 10);
+        } else {
+            // Schedule next check at the next flash time
+            const timeUntilNextFlash = flashInterval - cyclePosition;
+            setTimeout(checkAndFlash, Math.max(10, timeUntilNextFlash - 50));
+        }
+    };
+
+    checkAndFlash();
+}
+
+// Stop flashing
+function stopFlashing() {
+    if (flashIntervalId) {
+        clearInterval(flashIntervalId);
+        flashIntervalId = null;
+    }
+    flashStartTime = null;
+}
+
+// Perform a single flash (white for 100ms)
+function doFlash() {
+    const display = mode === 'projector'
+        ? document.getElementById('projector-display')
+        : document.getElementById('display');
+
+    if (!display) return;
+
+    const originalColor = display.style.backgroundColor;
+
+    // Flash white
+    display.style.backgroundColor = 'white';
+    console.log(`Flash! (time: ${getSyncedTime()})`);
+
+    // Restore after 100ms
+    setTimeout(() => {
+        display.style.backgroundColor = originalColor;
+    }, 100);
 }
 
 // ============================================================================
