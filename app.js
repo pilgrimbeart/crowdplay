@@ -283,7 +283,7 @@ function triggerAudioPlayback() {
 
     sendCommand({
         type: 'playAudio',
-        file: 'samples/loop.mp3',  // Default test file
+        file: 'samples/523947__p00ta5h__clap-cruising-120000-bpm.mp3',
         startTime: startTime,
         loop: true
     });
