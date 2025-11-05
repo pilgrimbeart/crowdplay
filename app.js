@@ -181,6 +181,7 @@ let wakeLock = null;  // Screen wake lock
 let audioContext = null;  // Web Audio API context
 let audioBuffers = new Map();  // filename -> AudioBuffer (decoded audio data)
 let currentSource = null;  // Currently playing AudioBufferSourceNode
+let audioStartTimeout = null;  // Timeout for scheduled audio start
 let audioFilesLoaded = false;  // Whether all audio files have been preloaded
 let audioLoadProgress = { loaded: 0, total: 0 };  // Track loading progress
 
@@ -647,9 +648,6 @@ async function handleNameSubmit(name) {
     // Unlock audio playback
     await unlockAudio();
 
-    // Request fullscreen (optional, may be blocked on some browsers)
-    requestFullscreen();
-
     // Now proceed with normal participant initialization
     showView('participant-view');
 
@@ -942,7 +940,7 @@ function playAudioSynced(file, startTime, loop) {
         // We're early - wait until the exact moment
         const waitTime = Math.abs(elapsed);
         console.log(`Waiting ${waitTime.toFixed(3)}s before starting audio`);
-        setTimeout(() => {
+        audioStartTimeout = setTimeout(() => {
             if (currentSource === source) {
                 source.start(audioContext.currentTime);
                 console.log('Audio started on schedule');
@@ -961,12 +959,19 @@ function playAudioSynced(file, startTime, loop) {
 
 // Stop currently playing audio
 function stopAudio() {
+    // Cancel any scheduled start
+    if (audioStartTimeout) {
+        clearTimeout(audioStartTimeout);
+        audioStartTimeout = null;
+    }
+
+    // Stop currently playing source
     if (currentSource) {
         try {
             currentSource.stop();
             currentSource.disconnect();
         } catch (err) {
-            // Source may have already stopped
+            // Source may have already stopped or not started yet
         }
         currentSource = null;
         console.log('Audio stopped');
