@@ -909,41 +909,54 @@ function playAudioSynced(file, startTime, loop) {
         return;
     }
 
+    // Calculate where we should be in the audio RIGHT NOW based on synced time
+    const now = getSyncedTime();
+    const elapsed = (now - startTime) / 1000; // seconds since scheduled start
+
+    if (elapsed < -5) {
+        console.warn(`Audio scheduled too far in future (${Math.round(elapsed)}s), skipping`);
+        return;
+    }
+
     // Create a buffer source node
     const source = audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.loop = loop;
     source.connect(audioContext.destination);
 
-    // Calculate when to start in AudioContext time
-    const now = getSyncedTime();
-    const delay = startTime - now; // milliseconds until start
-
-    if (delay > -5000) {
-        // Convert to AudioContext time
-        const audioContextStartTime = audioContext.currentTime + (delay / 1000);
-
-        if (delay > 50) {
-            // Schedule in the future
-            console.log(`Scheduling audio to start in ${Math.round(delay)}ms (at audioContext time ${audioContextStartTime.toFixed(3)}s)`);
-            source.start(audioContextStartTime);
-        } else if (delay < 0) {
-            // We're late - start with offset
-            const offset = Math.abs(delay) / 1000;
-            const actualOffset = loop ? (offset % audioBuffer.duration) : Math.min(offset, audioBuffer.duration);
-
-            console.log(`Starting audio immediately with ${Math.round(delay)}ms offset (${actualOffset.toFixed(2)}s into track)`);
-            source.start(audioContext.currentTime, actualOffset);
+    // Calculate the offset into the audio
+    let offset = 0;
+    if (elapsed > 0) {
+        // We're late - calculate position in the loop
+        if (loop) {
+            offset = elapsed % audioBuffer.duration;
         } else {
-            // Start now
-            console.log('Starting audio immediately');
-            source.start(audioContext.currentTime);
+            offset = Math.min(elapsed, audioBuffer.duration);
+            if (offset >= audioBuffer.duration) {
+                console.warn('Audio already finished, not playing');
+                return;
+            }
         }
-
-        currentSource = source;
+        console.log(`Starting audio with ${elapsed.toFixed(2)}s offset (position: ${offset.toFixed(2)}s)`);
     } else {
-        console.warn(`Too late to start audio (${Math.round(delay)}ms behind), skipping`);
+        // We're early - wait until the exact moment
+        const waitTime = Math.abs(elapsed);
+        console.log(`Waiting ${waitTime.toFixed(3)}s before starting audio`);
+        setTimeout(() => {
+            if (currentSource === source) {
+                source.start(audioContext.currentTime);
+                console.log('Audio started on schedule');
+            }
+        }, waitTime * 1000);
+        currentSource = source;
+        return;
     }
+
+    // Start immediately at the calculated offset
+    source.start(audioContext.currentTime, offset);
+    currentSource = source;
+
+    console.log(`Audio playing at offset ${offset.toFixed(2)}s / ${audioBuffer.duration.toFixed(2)}s`);
 }
 
 // Stop currently playing audio
