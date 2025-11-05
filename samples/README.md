@@ -2,6 +2,23 @@
 
 Place your audio files here for use in CrowdPlay.
 
+## Manifest File
+
+**Important**: After adding audio files, you must update `manifest.json`:
+
+```json
+{
+  "files": [
+    "samples/loop.mp3",
+    "samples/clap.mp3",
+    "samples/your-new-file.mp3"
+  ],
+  "version": "1.0"
+}
+```
+
+All files listed in the manifest are preloaded when participants join, ensuring zero-latency synchronized playback.
+
 ## Supported Formats
 
 **Use MP3 format** for maximum browser compatibility (works on all browsers including iOS Safari).

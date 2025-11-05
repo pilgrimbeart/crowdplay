@@ -144,6 +144,8 @@ function getSyncedTime() {
 function updateSyncStatus() {
     if (!isSynced) {
         setStatus('warning', `Syncing... (${syncSampleCount}/${SYNC_SAMPLES_NEEDED})`);
+    } else if (mode === 'participant' && !audioFilesLoaded) {
+        setStatus('warning', `Loading audio... (${audioLoadProgress.loaded}/${audioLoadProgress.total})`);
     } else {
         setStatus('connected');
     }
@@ -175,6 +177,8 @@ let participantId = null;
 // Audio playback state (Participant only)
 let currentAudio = null;  // Currently playing audio element
 let audioCache = new Map();  // filename -> Audio object (for preloading)
+let audioFilesLoaded = false;  // Whether all audio files have been preloaded
+let audioLoadProgress = { loaded: 0, total: 0 };  // Track loading progress
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Page loaded and ready!');
@@ -425,9 +429,63 @@ function updateLatencyDisplay() {
 // PARTICIPANT MODE
 // ============================================================================
 
+// Preload all audio files from manifest
+async function preloadAudioFiles() {
+    try {
+        console.log('Fetching audio manifest...');
+        const response = await fetch('samples/manifest.json');
+        const manifest = await response.json();
+
+        const files = manifest.files || [];
+        audioLoadProgress.total = files.length;
+        audioLoadProgress.loaded = 0;
+
+        console.log(`Preloading ${files.length} audio files...`);
+        updateSyncStatus();
+
+        // Preload all files
+        const loadPromises = files.map((file, index) => {
+            return new Promise((resolve, reject) => {
+                const audio = new Audio(file);
+                audio.preload = 'auto';
+
+                audio.addEventListener('canplaythrough', () => {
+                    audioCache.set(file, audio);
+                    audioLoadProgress.loaded++;
+                    console.log(`Loaded ${file} (${audioLoadProgress.loaded}/${audioLoadProgress.total})`);
+                    updateSyncStatus();
+                    resolve();
+                }, { once: true });
+
+                audio.addEventListener('error', (e) => {
+                    console.error(`Failed to load ${file}:`, e);
+                    audioLoadProgress.loaded++;
+                    updateSyncStatus();
+                    resolve();  // Continue even if one file fails
+                });
+
+                // Trigger loading
+                audio.load();
+            });
+        });
+
+        await Promise.all(loadPromises);
+        audioFilesLoaded = true;
+        console.log('✓ All audio files preloaded');
+        updateSyncStatus();
+    } catch (error) {
+        console.error('Failed to load audio manifest:', error);
+        audioFilesLoaded = true;  // Don't block if manifest fails
+        updateSyncStatus();
+    }
+}
+
 function initParticipant() {
     console.log('Initializing participant mode for room:', roomId);
     showView('participant-view');
+
+    // Start preloading audio files immediately
+    preloadAudioFiles();
 
     // Initialize Firebase
     initFirebase();
@@ -535,6 +593,11 @@ function sendHeartbeat(latency) {
 function playAudioSynced(file, startTime, loop) {
     if (!isSynced) {
         console.warn('Cannot play audio: not yet time-synced');
+        return;
+    }
+
+    if (!audioFilesLoaded) {
+        console.warn('Cannot play audio: files still loading');
         return;
     }
 
