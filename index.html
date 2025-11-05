@@ -40,6 +40,25 @@
         </div>
     </div>
 
+    <!-- Name Entry Screen (Participant) -->
+    <div id="name-entry-view" class="view" style="display: none;">
+        <div class="container">
+            <h1>CrowdPlay</h1>
+            <p class="subtitle">Enter your name to join</p>
+            <form id="name-entry-form" class="name-form">
+                <input
+                    type="text"
+                    id="name-input"
+                    placeholder="Your name"
+                    maxlength="20"
+                    autocomplete="off"
+                    required
+                />
+                <button type="submit">Join</button>
+            </form>
+        </div>
+    </div>
+
     <!-- Participant View -->
     <div id="participant-view" class="view" style="display: none;">
         <div class="fullscreen-display" id="display">

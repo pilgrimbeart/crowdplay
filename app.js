@@ -171,8 +171,10 @@ let clientLatencies = new Map();  // clientId -> {latency, lastSeen}
 const MAX_LATENCY_MS = 5000;      // Ignore latencies > 5s
 const LATENCY_PROBE_INTERVAL = 10000;  // Send probes every 10s
 
-// Participant ID (Participant only)
+// Participant ID and name (Participant only)
 let participantId = null;
+let participantName = null;
+let wakeLock = null;  // Screen wake lock
 
 // Audio playback state (Participant only)
 let currentAudio = null;  // Currently playing audio element
@@ -482,9 +484,49 @@ async function preloadAudioFiles() {
 
 function initParticipant() {
     console.log('Initializing participant mode for room:', roomId);
+
+    // Show name entry screen first
+    showView('name-entry-view');
+
+    // Pre-fill name from localStorage if available
+    const savedName = localStorage.getItem('crowdplay-name');
+    if (savedName) {
+        document.getElementById('name-input').value = savedName;
+    }
+
+    // Focus the input field
+    setTimeout(() => {
+        document.getElementById('name-input').focus();
+    }, 100);
+
+    // Handle form submission
+    document.getElementById('name-entry-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('name-input').value.trim();
+        if (name) {
+            await handleNameSubmit(name);
+        }
+    });
+}
+
+async function handleNameSubmit(name) {
+    participantName = name;
+    localStorage.setItem('crowdplay-name', name);
+    console.log('Participant name:', name);
+
+    // Request wake lock to keep screen on
+    await requestWakeLock();
+
+    // Unlock audio playback
+    await unlockAudio();
+
+    // Request fullscreen (optional, may be blocked on some browsers)
+    requestFullscreen();
+
+    // Now proceed with normal participant initialization
     showView('participant-view');
 
-    // Start preloading audio files immediately
+    // Start preloading audio files
     preloadAudioFiles();
 
     // Initialize Firebase
@@ -497,7 +539,51 @@ function initParticipant() {
     listenForCommands();
 
     // Update status
-    document.getElementById('participant-status').textContent = 'Connected to room ' + roomId;
+    document.getElementById('participant-status').textContent = `Welcome, ${name}!`;
+}
+
+async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+        try {
+            wakeLock = await navigator.wakeLock.request('screen');
+            console.log('✓ Screen wake lock active');
+
+            // Re-request if visibility changes (user switches tabs)
+            document.addEventListener('visibilitychange', async () => {
+                if (wakeLock !== null && document.visibilityState === 'visible') {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                }
+            });
+        } catch (err) {
+            console.warn('Wake lock failed (not critical):', err);
+        }
+    } else {
+        console.warn('Wake Lock API not supported');
+    }
+}
+
+async function unlockAudio() {
+    try {
+        // Play a silent audio file to unlock audio playback
+        const silentAudio = new Audio();
+        silentAudio.src = 'data:audio/mp3;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+        await silentAudio.play();
+        console.log('✓ Audio unlocked');
+    } catch (err) {
+        console.warn('Audio unlock failed (user may need to interact):', err);
+    }
+}
+
+function requestFullscreen() {
+    try {
+        if (document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(err => {
+                console.log('Fullscreen request declined (not critical):', err.message);
+            });
+        }
+    } catch (err) {
+        console.log('Fullscreen not supported');
+    }
 }
 
 function registerParticipant() {
