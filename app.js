@@ -282,6 +282,9 @@ function setupConductorKeyboard() {
         } else if (key === 's') {
             console.log('Stopping audio');
             sendCommand({ type: 'stopAudio' });
+        } else if (key === 'm') {
+            console.log('Triggering music playback');
+            triggerMusicPlayback();
         } else if (key === 'f') {
             console.log('Triggering synchronized flash');
             triggerFlash();
@@ -308,6 +311,28 @@ function triggerAudioPlayback() {
         file: 'samples/clap.mp3',
         startTime: startTime,
         loop: true
+    });
+}
+
+// Trigger synchronized music playback on all clients (no loop)
+function triggerMusicPlayback() {
+    if (!isSynced) {
+        console.error('Cannot trigger music: not yet time-synced');
+        return;
+    }
+
+    // Calculate start time: current time + 2x the 95th percentile latency (safety buffer)
+    const latency95th = calculate95thPercentileLatency();
+    const buffer = Math.max(latency95th * 2, 500);  // Minimum 500ms buffer
+    const startTime = getSyncedTime() + buffer;
+
+    console.log(`Scheduling music to start in ${Math.round(buffer)}ms (latency 95th: ${Math.round(latency95th)}ms)`);
+
+    sendCommand({
+        type: 'playAudio',
+        file: 'samples/sandstorm.mp3',
+        startTime: startTime,
+        loop: false
     });
 }
 
