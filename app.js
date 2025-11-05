@@ -26,6 +26,7 @@ function getURLParams() {
     const params = new URLSearchParams(window.location.search);
     return {
         conduct: params.has('conduct'),
+        project: params.has('project'),
         room: params.get('room')
     };
 }
@@ -182,6 +183,11 @@ let audioCache = new Map();  // filename -> Audio object (for preloading)
 let audioFilesLoaded = false;  // Whether all audio files have been preloaded
 let audioLoadProgress = { loaded: 0, total: 0 };  // Track loading progress
 
+// Drum hit detection (Participant only)
+let lastDrumHitTime = 0;  // Last time we sent a drum hit event
+const DRUM_THROTTLE_MS = 500;  // Minimum time between drum hits (0.5s)
+const DRUM_THRESHOLD = 20;  // Acceleration threshold for drum hit detection
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Page loaded and ready!');
 
@@ -191,6 +197,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (params.conduct) {
         mode = 'conductor';
         initConductor();
+    } else if (params.project && params.room) {
+        mode = 'projector';
+        roomId = params.room;
+        initProjector();
     } else if (params.room) {
         mode = 'participant';
         roomId = params.room;
@@ -285,7 +295,7 @@ function triggerAudioPlayback() {
 
     sendCommand({
         type: 'playAudio',
-        file: 'samples/523947__p00ta5h__clap-cruising-120000-bpm.mp3',
+        file: 'samples/clap.mp3',
         startTime: startTime,
         loop: true
     });
@@ -343,7 +353,7 @@ function sendStateUpdate() {
     });
 }
 
-// Listen for heartbeat messages from clients
+// Listen for heartbeat and drum hit messages from clients
 function listenForHeartbeats() {
     if (!db || !roomId) {
         console.error('Firebase not initialized or no room ID');
@@ -381,6 +391,15 @@ function listenForHeartbeats() {
             updateLatencyDisplay();
 
             // Remove the heartbeat message to keep database clean
+            snapshot.ref.remove();
+        } else if (message.type === 'drumHit') {
+            // Participant detected a drum hit - broadcast to all clients
+            console.log(`Drum hit from ${message.name}, magnitude: ${message.magnitude}`);
+
+            // Broadcast drum hit command to projector and all participants
+            sendCommand({ type: 'drumHit' });
+
+            // Remove the drum hit message to keep database clean
             snapshot.ref.remove();
         }
     });
@@ -427,6 +446,81 @@ function updateLatencyDisplay() {
 
         return `<div class="latency-item"><span>${displayName}</span><span class="${colorClass}">${latency}ms</span></div>`;
     }).join('');
+}
+
+// ============================================================================
+// PROJECTOR MODE
+// ============================================================================
+
+function initProjector() {
+    console.log('Initializing projector mode for room:', roomId);
+    showView('projector-view');
+
+    // Start preloading audio files immediately
+    preloadAudioFiles();
+
+    // Initialize Firebase
+    initFirebase();
+
+    // Listen for commands from conductor
+    listenForProjectorCommands();
+
+    // Listen for participant count
+    listenForProjectorParticipants();
+
+    // Update status
+    document.getElementById('projector-status').textContent = 'Connected to room ' + roomId;
+}
+
+function listenForProjectorCommands() {
+    if (!db || !roomId) {
+        console.error('Firebase not initialized or no room ID');
+        return;
+    }
+
+    const commandsRef = db.ref(`rooms/${roomId}/toClients`);
+
+    // Only listen to commands created AFTER we connect (ignore backlog)
+    const joinTime = Date.now();
+    console.log('Listening for commands created after:', joinTime);
+
+    commandsRef.orderByChild('timestamp').startAt(joinTime).on('child_added', (snapshot) => {
+        const command = snapshot.val();
+        console.log('Received command:', command);
+
+        handleProjectorCommand(command);
+    });
+}
+
+function handleProjectorCommand(command) {
+    const display = document.getElementById('projector-display');
+
+    if (command.type === 'playAudio') {
+        playAudioSynced(command.file, command.startTime, command.loop);
+    } else if (command.type === 'stopAudio') {
+        stopAudio();
+    } else if (command.type === 'color') {
+        display.style.backgroundColor = command.value;
+        console.log('Changed projector color to:', command.value);
+    } else if (command.type === 'drumHit') {
+        // Play drum sound when participant hits drum
+        playDrumSound();
+    }
+}
+
+function listenForProjectorParticipants() {
+    if (!db || !roomId) {
+        console.error('Firebase not initialized or no room ID');
+        return;
+    }
+
+    const participantsRef = db.ref(`rooms/${roomId}/participants`);
+
+    participantsRef.on('value', (snapshot) => {
+        const count = snapshot.numChildren();
+        document.getElementById('projector-participant-count').textContent = `Participants: ${count}`;
+        console.log('Participant count:', count);
+    });
 }
 
 // ============================================================================
@@ -539,6 +633,9 @@ async function handleNameSubmit(name) {
 
     // Listen for commands from conductor
     listenForCommands();
+
+    // Start listening for drum hits (accelerometer)
+    startDrumDetection();
 
     // Update status
     document.getElementById('participant-status').textContent = `Welcome, ${name}!`;
@@ -679,6 +776,76 @@ function sendHeartbeat(latency) {
     });
 }
 
+// Start listening for drum hit detection using accelerometer
+function startDrumDetection() {
+    // Check if DeviceMotionEvent is available
+    if (typeof DeviceMotionEvent === 'undefined') {
+        console.warn('DeviceMotionEvent not supported on this device');
+        return;
+    }
+
+    // iOS 13+ requires permission
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission()
+            .then(permissionState => {
+                if (permissionState === 'granted') {
+                    addMotionListener();
+                } else {
+                    console.warn('Motion permission denied');
+                }
+            })
+            .catch(err => console.error('Error requesting motion permission:', err));
+    } else {
+        // Non-iOS or older iOS, just add listener
+        addMotionListener();
+    }
+}
+
+function addMotionListener() {
+    window.addEventListener('devicemotion', (event) => {
+        // Get acceleration with gravity
+        const acc = event.accelerationIncludingGravity;
+        if (!acc || acc.x === null) return;
+
+        // Calculate magnitude of acceleration vector
+        const magnitude = Math.sqrt(
+            acc.x * acc.x +
+            acc.y * acc.y +
+            acc.z * acc.z
+        );
+
+        // Detect sharp motion (drum hit)
+        if (magnitude > DRUM_THRESHOLD) {
+            // Check throttle
+            const now = Date.now();
+            if (now - lastDrumHitTime >= DRUM_THROTTLE_MS) {
+                lastDrumHitTime = now;
+                sendDrumHit(magnitude);
+                console.log(`Drum hit detected! Magnitude: ${magnitude.toFixed(1)}`);
+            }
+        }
+    });
+
+    console.log('✓ Drum detection started (shake your phone!)');
+}
+
+// Send drum hit event to conductor
+function sendDrumHit(magnitude) {
+    if (!db || !roomId || !participantId) {
+        console.error('Cannot send drum hit: Firebase not initialized');
+        return;
+    }
+
+    const drumHitRef = db.ref(`rooms/${roomId}/toController`).push();
+    drumHitRef.set({
+        type: 'drumHit',
+        clientId: participantId,
+        name: participantName,
+        magnitude: Math.round(magnitude),
+        timestamp: getSyncedTime()
+    });
+}
+
 // Play audio synchronized to a specific start time
 function playAudioSynced(file, startTime, loop) {
     if (!isSynced) {
@@ -743,6 +910,25 @@ function stopAudio() {
         currentAudio.currentTime = 0;
         console.log('Audio stopped');
     }
+}
+
+// Play drum sound (instant feedback, no sync needed)
+function playDrumSound() {
+    const drumFile = 'samples/drum.mp3';
+
+    // Get or create drum audio element
+    let drumAudio = audioCache.get(drumFile);
+    if (!drumAudio) {
+        drumAudio = new Audio(drumFile);
+        drumAudio.preload = 'auto';
+        audioCache.set(drumFile, drumAudio);
+    }
+
+    // Reset to beginning and play
+    drumAudio.currentTime = 0;
+    drumAudio.play().catch(err => {
+        console.error('Drum sound play failed:', err);
+    });
 }
 
 // ============================================================================
