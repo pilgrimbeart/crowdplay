@@ -257,7 +257,7 @@ function setupConductorKeyboard() {
         } else if (key === 'w') {
             console.log('Sending WHITE command');
             sendCommand({ type: 'color', value: 'white' });
-        } else if (key === 'p') {
+        } else if (key === 'c' || key === 'p') {
             console.log('Triggering audio playback');
             triggerAudioPlayback();
         } else if (key === 's') {
