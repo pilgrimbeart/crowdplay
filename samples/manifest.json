@@ -1,7 +1,8 @@
 {
   "files": [
     "samples/clap.mp3",
-    "samples/drum.mp3"
+    "samples/drum.mp3",
+    "samples/sandstorm.mp3"
   ],
   "version": "1.0"
 }
