@@ -358,10 +358,12 @@ function listenForHeartbeats() {
         if (message.type === 'heartbeat') {
             const clientId = message.clientId;
             const latency = message.latency;
+            const name = message.name || 'Unknown';
 
             // Update latency tracking
             if (latency < MAX_LATENCY_MS) {
                 clientLatencies.set(clientId, {
+                    name: name,
                     latency: latency,
                     lastSeen: Date.now()
                 });
@@ -415,7 +417,7 @@ function updateLatencyDisplay() {
         .sort((a, b) => b[1].latency - a[1].latency);
 
     listEl.innerHTML = sortedClients.map(([clientId, data]) => {
-        const shortId = clientId.substring(0, 12) + '...';
+        const displayName = data.name || 'Unknown';
         const latency = Math.round(data.latency);
 
         // Color code: <200ms green, <500ms yellow, >500ms red
@@ -423,7 +425,7 @@ function updateLatencyDisplay() {
         if (latency > 500) colorClass = 'latency-bad';
         else if (latency > 200) colorClass = 'latency-ok';
 
-        return `<div class="latency-item"><span>${shortId}</span><span class="${colorClass}">${latency}ms</span></div>`;
+        return `<div class="latency-item"><span>${displayName}</span><span class="${colorClass}">${latency}ms</span></div>`;
     }).join('');
 }
 
@@ -597,6 +599,7 @@ function registerParticipant() {
 
     const participantRef = db.ref(`rooms/${roomId}/participants/${participantId}`);
     participantRef.set({
+        name: participantName,
         joinedAt: Date.now()
     });
 
@@ -670,6 +673,7 @@ function sendHeartbeat(latency) {
     heartbeatRef.set({
         type: 'heartbeat',
         clientId: participantId,
+        name: participantName,
         latency: Math.round(latency),
         timestamp: getSyncedTime()
     });
