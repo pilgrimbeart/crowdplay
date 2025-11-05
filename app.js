@@ -79,12 +79,58 @@ function monitorConnection() {
     connectedRef.on('value', (snapshot) => {
         if (snapshot.val() === true) {
             console.log('✓ Firebase connected');
-            setStatus('connected');
+            updateSyncStatus();
         } else {
             console.warn('✗ Firebase disconnected');
             setStatus('error', 'Disconnected');
+            isSynced = false;
         }
     });
+}
+
+// Monitor Firebase server time offset and sync local clock
+function monitorServerTime() {
+    if (!db) return;
+
+    const offsetRef = db.ref('.info/serverTimeOffset');
+    offsetRef.on('value', (snapshot) => {
+        const firebaseOffset = snapshot.val(); // Firebase's estimate of our clock offset (ms)
+
+        if (syncSampleCount === 0) {
+            // First sample: just set it directly
+            serverTimeOffset = firebaseOffset;
+            console.log('Initial server time offset:', serverTimeOffset, 'ms');
+        } else {
+            // Subsequent samples: apply first-order filter
+            const oldOffset = serverTimeOffset;
+            serverTimeOffset = SYNC_FILTER_K * serverTimeOffset + (1 - SYNC_FILTER_K) * firebaseOffset;
+            console.log(`Time sync: ${firebaseOffset}ms (filtered: ${Math.round(serverTimeOffset)}ms, prev: ${Math.round(oldOffset)}ms)`);
+        }
+
+        syncSampleCount++;
+
+        // Check if we've achieved sync
+        if (syncSampleCount >= SYNC_SAMPLES_NEEDED && !isSynced) {
+            isSynced = true;
+            console.log('✓ Time synchronized! Offset:', Math.round(serverTimeOffset), 'ms');
+        }
+
+        updateSyncStatus();
+    });
+}
+
+// Get current synchronized time (in milliseconds)
+function getSyncedTime() {
+    return Date.now() + serverTimeOffset;
+}
+
+// Update status indicator based on connection and sync state
+function updateSyncStatus() {
+    if (!isSynced) {
+        setStatus('warning', `Syncing... (${syncSampleCount}/${SYNC_SAMPLES_NEEDED})`);
+    } else {
+        setStatus('connected');
+    }
 }
 
 // ============================================================================
@@ -94,6 +140,13 @@ function monitorConnection() {
 let mode = 'landing';
 let roomId = null;
 let db = null;
+
+// Time synchronization state
+let serverTimeOffset = 0;        // Our offset from Firebase server time (ms)
+let isSynced = false;            // Whether we have achieved sync
+let syncSampleCount = 0;         // Number of sync samples received
+const SYNC_SAMPLES_NEEDED = 3;  // Samples needed before considered synced
+const SYNC_FILTER_K = 0.75;      // Filter constant: higher = slower to adapt
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Page loaded and ready!');
@@ -123,8 +176,17 @@ function initConductor() {
     console.log('Initializing conductor mode...');
     showView('conductor-view');
 
-    // Generate room ID
-    roomId = generateRoomID();
+    // Check for saved room ID in localStorage, otherwise generate new one
+    const savedRoomId = localStorage.getItem('crowdplay-roomId');
+    if (savedRoomId) {
+        roomId = savedRoomId;
+        console.log('Reusing saved room ID:', roomId);
+    } else {
+        roomId = generateRoomID();
+        localStorage.setItem('crowdplay-roomId', roomId);
+        console.log('Generated new room ID:', roomId);
+    }
+
     document.getElementById('room-id').textContent = roomId;
 
     // Generate QR code
@@ -287,6 +349,9 @@ function initFirebase() {
 
         // Monitor connection status
         monitorConnection();
+
+        // Monitor server time for synchronization
+        monitorServerTime();
     } catch (error) {
         console.error('Firebase initialization error:', error);
         setStatus('error', 'Firebase init failed: ' + error.message);
