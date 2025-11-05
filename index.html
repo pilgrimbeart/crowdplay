@@ -7,14 +7,46 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <h1>CrowdPlay</h1>
-        <p class="subtitle">Audience Participation Game</p>
-
-        <div id="status">
-            <p>Hello World! 🎮</p>
+    <!-- Landing Page (no URL params) -->
+    <div id="landing-view" class="view" style="display: none;">
+        <div class="container">
+            <h1>CrowdPlay</h1>
+            <p class="subtitle">Audience Participation Game</p>
+            <div class="instructions">
+                <p>To start as conductor, add <code>?conduct</code> to the URL</p>
+                <p>To join as participant, scan the QR code shown by the conductor</p>
+            </div>
         </div>
     </div>
+
+    <!-- Conductor View -->
+    <div id="conductor-view" class="view" style="display: none;">
+        <div class="container">
+            <h1>Conductor Mode</h1>
+            <div id="room-info">
+                <p>Room: <span id="room-id"></span></p>
+                <p>Participants: <span id="participant-count">0</span></p>
+            </div>
+            <div id="qr-code"></div>
+            <div class="controls">
+                <p>Press <kbd>B</kbd> for black, <kbd>W</kbd> for white</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Participant View -->
+    <div id="participant-view" class="view" style="display: none;">
+        <div class="fullscreen-display" id="display">
+            <p id="participant-status">Connecting...</p>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+    <!-- QR Code Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <script src="app.js"></script>
 </body>
