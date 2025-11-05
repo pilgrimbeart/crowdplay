@@ -37,6 +37,60 @@ h1 {
     width: 100%;
 }
 
+/* Status indicator */
+#status-indicator {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 1000;
+    transition: all 0.3s ease;
+}
+
+/* Dot state - connected and working */
+.status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.6);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+/* Error state - shows message */
+.status-error {
+    width: auto;
+    height: auto;
+    border-radius: 8px;
+    background-color: rgba(255, 100, 100, 0.9);
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    color: white;
+    animation: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Warning state */
+.status-warning {
+    width: auto;
+    height: auto;
+    border-radius: 8px;
+    background-color: rgba(255, 200, 100, 0.9);
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    color: #333;
+    animation: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Pulse animation for connected state */
+@keyframes pulse {
+    0%, 100% {
+        opacity: 0.4;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
 /* Landing page */
 .instructions {
     background: rgba(255, 255, 255, 0.2);

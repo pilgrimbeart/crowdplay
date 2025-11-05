@@ -6,10 +6,11 @@ console.log('CrowdPlay initialized!');
 // ============================================================================
 
 // Firebase configuration
+// FIXED: Changed databaseURL to use .firebaseio.com instead of .firebasedatabase.app
 const firebaseConfig = {
   apiKey: "AIzaSyAh0Dh_TE0r3PYahE9B86Jo3vui1QW96rU",
   authDomain: "crowdplay-2025.firebaseapp.com",
-  databaseURL: "https://crowdplay-2025-default-rtdb.europe-west1.firebasedatabase.app",
+  databaseURL: "https://crowdplay-2025-default-rtdb.europe-west1.firebaseio.com",  // Fixed: was .firebasedatabase.app
   projectId: "crowdplay-2025",
   storageBucket: "crowdplay-2025.firebasestorage.app",
   messagingSenderId: "470091878545",
@@ -45,6 +46,45 @@ function showView(viewId) {
         view.style.display = 'none';
     });
     document.getElementById(viewId).style.display = 'block';
+}
+
+// Status indicator management
+function setStatus(type, message = '') {
+    const indicator = document.getElementById('status-indicator');
+    if (!indicator) return;
+
+    // Remove all status classes
+    indicator.className = '';
+    indicator.textContent = '';
+
+    if (type === 'connected') {
+        indicator.className = 'status-dot';
+        indicator.title = 'Connected';
+    } else if (type === 'error') {
+        indicator.className = 'status-error';
+        indicator.textContent = message || 'Connection Error';
+        indicator.title = message;
+    } else if (type === 'warning') {
+        indicator.className = 'status-warning';
+        indicator.textContent = message || 'Warning';
+        indicator.title = message;
+    }
+}
+
+// Monitor Firebase connection
+function monitorConnection() {
+    if (!db) return;
+
+    const connectedRef = db.ref('.info/connected');
+    connectedRef.on('value', (snapshot) => {
+        if (snapshot.val() === true) {
+            console.log('✓ Firebase connected');
+            setStatus('connected');
+        } else {
+            console.warn('✗ Firebase disconnected');
+            setStatus('error', 'Disconnected');
+        }
+    });
 }
 
 // ============================================================================
@@ -231,6 +271,7 @@ function initFirebase() {
     if (firebaseConfig.apiKey === 'YOUR_API_KEY') {
         console.warn('⚠️  Firebase not configured yet. Please add your Firebase config to app.js');
         console.warn('The app will not work until Firebase is configured.');
+        setStatus('warning', 'Firebase not configured');
         return;
     }
 
@@ -238,7 +279,11 @@ function initFirebase() {
         firebase.initializeApp(firebaseConfig);
         db = firebase.database();
         console.log('Firebase initialized successfully');
+
+        // Monitor connection status
+        monitorConnection();
     } catch (error) {
         console.error('Firebase initialization error:', error);
+        setStatus('error', 'Firebase init failed: ' + error.message);
     }
 }

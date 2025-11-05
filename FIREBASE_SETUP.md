@@ -43,8 +43,17 @@ const firebaseConfig = {
 ## Step 4: Add Config to Your App
 
 1. Open `app.js`
-2. Find the `firebaseConfig` object at the top (lines 9-17)
+2. Find the `firebaseConfig` object at the top (lines 10-18)
 3. Replace the placeholder values with your actual Firebase config
+
+**⚠️ IMPORTANT:** Make sure the `databaseURL` ends with `.firebaseio.com` (NOT `.firebasedatabase.app`).
+
+The correct format is:
+```
+https://your-project-name-default-rtdb.firebaseio.com
+```
+
+If you see connection errors in the browser console, double-check this URL!
 
 ## Step 5: Security Rules (Important!)
 
