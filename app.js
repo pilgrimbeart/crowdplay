@@ -5,15 +5,15 @@ console.log('CrowdPlay initialized!');
 // CONFIGURATION
 // ============================================================================
 
-// Firebase configuration (you'll need to replace this with your actual config)
+// Firebase configuration
 const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyAh0Dh_TE0r3PYahE9B86Jo3vui1QW96rU",
+  authDomain: "crowdplay-2025.firebaseapp.com",
+  databaseURL: "https://crowdplay-2025-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "crowdplay-2025",
+  storageBucket: "crowdplay-2025.firebasestorage.app",
+  messagingSenderId: "470091878545",
+  appId: "1:470091878545:web:0059ece92aea7cb91bef30"
 };
 
 // ============================================================================
