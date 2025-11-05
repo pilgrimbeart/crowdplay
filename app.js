@@ -996,12 +996,18 @@ function startFlashing(startTime, interval) {
 
     // Function to check if it's time to flash
     const checkAndFlash = () => {
+        // Check if we've been cancelled
+        if (flashStartTime !== startTime) {
+            console.log('Flash cancelled, stopping');
+            return;
+        }
+
         const now = getSyncedTime();
         const elapsed = now - flashStartTime;
 
         if (elapsed < 0) {
             // Not time yet, check again soon
-            setTimeout(checkAndFlash, Math.max(10, -elapsed));
+            flashIntervalId = setTimeout(checkAndFlash, Math.max(10, -elapsed));
             return;
         }
 
@@ -1012,11 +1018,11 @@ function startFlashing(startTime, interval) {
         if (cyclePosition < 50) {
             doFlash();
             // Schedule next check after this cycle
-            setTimeout(checkAndFlash, flashInterval - cyclePosition + 10);
+            flashIntervalId = setTimeout(checkAndFlash, flashInterval - cyclePosition + 10);
         } else {
             // Schedule next check at the next flash time
             const timeUntilNextFlash = flashInterval - cyclePosition;
-            setTimeout(checkAndFlash, Math.max(10, timeUntilNextFlash - 50));
+            flashIntervalId = setTimeout(checkAndFlash, Math.max(10, timeUntilNextFlash - 50));
         }
     };
 
@@ -1026,7 +1032,7 @@ function startFlashing(startTime, interval) {
 // Stop flashing
 function stopFlashing() {
     if (flashIntervalId) {
-        clearInterval(flashIntervalId);
+        clearTimeout(flashIntervalId);
         flashIntervalId = null;
     }
     flashStartTime = null;
