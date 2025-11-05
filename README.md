@@ -13,15 +13,19 @@ CrowdPlay enables ~300 audience members to interact with a shared display using 
 - ✅ Participant mode (access via `?room=XXXX` URL parameter)
 - ✅ QR code generation for easy participant joining
 - ✅ Real-time pub/sub messaging via Firebase Realtime Database
-- ✅ Basic keyboard controls (B = black, W = white)
-- ✅ Live participant counter
+- ✅ Persistent room IDs (localStorage)
+- ✅ Firebase server time synchronization (±1ms accuracy)
+- ✅ Continuous latency monitoring with 95th percentile tracking
+- ✅ Synchronized audio playback with late-join compensation
+- ✅ Audio looping support
+- ✅ Keyboard controls: B/W (colors), P (play audio), S (stop audio)
+- ✅ Live participant counter and per-client latency display
 
 ### Planned
+- Audio preloading for zero-latency playback
 - Motion-based interaction using device accelerometer
 - Team-based collaborative musical experiences
-- Audio synchronization
 - Visual and haptic feedback
-- Time synchronization for coordinated effects
 
 ## Tech Stack
 

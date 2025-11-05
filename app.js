@@ -172,6 +172,10 @@ const LATENCY_PROBE_INTERVAL = 10000;  // Send probes every 10s
 // Participant ID (Participant only)
 let participantId = null;
 
+// Audio playback state (Participant only)
+let currentAudio = null;  // Currently playing audio element
+let audioCache = new Map();  // filename -> Audio object (for preloading)
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Page loaded and ready!');
 
@@ -249,7 +253,35 @@ function setupConductorKeyboard() {
         } else if (key === 'w') {
             console.log('Sending WHITE command');
             sendCommand({ type: 'color', value: 'white' });
+        } else if (key === 'p') {
+            console.log('Triggering audio playback');
+            triggerAudioPlayback();
+        } else if (key === 's') {
+            console.log('Stopping audio');
+            sendCommand({ type: 'stopAudio' });
         }
+    });
+}
+
+// Trigger synchronized audio playback on all clients
+function triggerAudioPlayback() {
+    if (!isSynced) {
+        console.error('Cannot trigger audio: not yet time-synced');
+        return;
+    }
+
+    // Calculate start time: current time + 2x the 95th percentile latency (safety buffer)
+    const latency95th = calculate95thPercentileLatency();
+    const buffer = Math.max(latency95th * 2, 500);  // Minimum 500ms buffer
+    const startTime = getSyncedTime() + buffer;
+
+    console.log(`Scheduling audio to start in ${Math.round(buffer)}ms (latency 95th: ${Math.round(latency95th)}ms)`);
+
+    sendCommand({
+        type: 'playAudio',
+        file: 'samples/loop.mp3',  // Default test file
+        startTime: startTime,
+        loop: true
     });
 }
 
@@ -467,6 +499,10 @@ function handleCommand(command) {
         console.log(`State update received, latency: ${Math.round(latency)}ms`);
 
         // TODO: Apply any game state from command
+    } else if (command.type === 'playAudio') {
+        playAudioSynced(command.file, command.startTime, command.loop);
+    } else if (command.type === 'stopAudio') {
+        stopAudio();
     } else if (command.type === 'color') {
         display.style.backgroundColor = command.value;
         console.log('Changed color to:', command.value);
@@ -493,6 +529,67 @@ function sendHeartbeat(latency) {
         latency: Math.round(latency),
         timestamp: getSyncedTime()
     });
+}
+
+// Play audio synchronized to a specific start time
+function playAudioSynced(file, startTime, loop) {
+    if (!isSynced) {
+        console.warn('Cannot play audio: not yet time-synced');
+        return;
+    }
+
+    console.log(`Playing audio: ${file}, startTime: ${startTime}, loop: ${loop}`);
+
+    // Get or create audio element
+    let audio = audioCache.get(file);
+    if (!audio) {
+        audio = new Audio(file);
+        audio.preload = 'auto';
+        audioCache.set(file, audio);
+    }
+
+    audio.loop = loop;
+
+    // Calculate when to start
+    const now = getSyncedTime();
+    const delay = startTime - now;
+
+    if (delay > 50) {
+        // Start in the future - wait then play
+        console.log(`Waiting ${Math.round(delay)}ms before starting audio`);
+        setTimeout(() => {
+            audio.currentTime = 0;
+            audio.play().catch(err => console.error('Audio play failed:', err));
+            currentAudio = audio;
+        }, delay);
+    } else if (delay >= -5000) {
+        // Slightly late or on time - start with offset
+        // For looping audio, calculate position within loop
+        const offset = Math.abs(delay) / 1000;
+        console.log(`Starting audio with ${Math.round(delay)}ms offset (${offset.toFixed(2)}s into track)`);
+
+        // Wait for audio metadata to load
+        audio.addEventListener('loadedmetadata', () => {
+            const actualOffset = loop ? (offset % audio.duration) : Math.min(offset, audio.duration);
+            audio.currentTime = actualOffset;
+            audio.play().catch(err => console.error('Audio play failed:', err));
+        }, { once: true });
+
+        // Trigger metadata load if needed
+        audio.load();
+        currentAudio = audio;
+    } else {
+        console.warn(`Too late to start audio (${Math.round(delay)}ms behind), skipping`);
+    }
+}
+
+// Stop currently playing audio
+function stopAudio() {
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+        console.log('Audio stopped');
+    }
 }
 
 // ============================================================================
