@@ -111,6 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         mode = 'landing';
         showView('landing-view');
+        setStatus('warning', 'Add ?conduct or ?room=XXX to URL');
     }
 });
 
@@ -237,7 +238,11 @@ function listenForCommands() {
 
     const commandsRef = db.ref(`rooms/${roomId}/toClients`);
 
-    commandsRef.on('child_added', (snapshot) => {
+    // Only listen to commands created AFTER we connect (ignore backlog)
+    const joinTime = Date.now();
+    console.log('Listening for commands created after:', joinTime);
+
+    commandsRef.orderByChild('timestamp').startAt(joinTime).on('child_added', (snapshot) => {
         const command = snapshot.val();
         console.log('Received command:', command);
 

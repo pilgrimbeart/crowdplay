@@ -69,7 +69,9 @@ By default, test mode allows anyone to read/write your database for 30 days. Bef
       "$roomId": {
         ".read": true,
         ".write": true,
-        ".indexOn": ["timestamp"]
+        "toClients": {
+          ".indexOn": ["timestamp"]
+        }
       }
     }
   }
@@ -77,6 +79,8 @@ By default, test mode allows anyone to read/write your database for 30 days. Bef
 ```
 
 **Note:** These rules allow anyone to read/write. For a one-time event with a random room ID, this is acceptable. For production, implement proper authentication.
+
+**Important:** The `.indexOn` rule is required for the participant backlog filtering to work efficiently.
 
 ## Step 6: Set Budget Alerts (Recommended)
 
