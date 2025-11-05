@@ -182,6 +182,7 @@ let currentAudio = null;  // Currently playing audio element
 let audioCache = new Map();  // filename -> Audio object (for preloading)
 let audioFilesLoaded = false;  // Whether all audio files have been preloaded
 let audioLoadProgress = { loaded: 0, total: 0 };  // Track loading progress
+let loopState = null;  // For manual loop management: {startTime, duration, checkInterval}
 
 // Drum hit detection (Participant only)
 let lastDrumHitTime = 0;  // Last time we sent a drum hit event
@@ -860,6 +861,9 @@ function playAudioSynced(file, startTime, loop) {
 
     console.log(`Playing audio: ${file}, startTime: ${startTime}, loop: ${loop}`);
 
+    // Stop any currently playing audio
+    stopAudio();
+
     // Get or create audio element
     let audio = audioCache.get(file);
     if (!audio) {
@@ -868,38 +872,99 @@ function playAudioSynced(file, startTime, loop) {
         audioCache.set(file, audio);
     }
 
-    audio.loop = loop;
+    // IMPORTANT: Don't use native loop - we'll handle it manually for better sync
+    audio.loop = false;
+
+    // Function to calculate where we should be in the audio based on synced time
+    const getExpectedPosition = () => {
+        const elapsed = (getSyncedTime() - startTime) / 1000; // seconds since start
+        if (!loop || !audio.duration) return elapsed;
+        return elapsed % audio.duration; // Wrap around for loops
+    };
+
+    // Function to start/restart audio at the correct position
+    const startAudio = () => {
+        const expectedPos = getExpectedPosition();
+
+        if (expectedPos < 0 || expectedPos > audio.duration + 5) {
+            console.warn(`Invalid audio position: ${expectedPos.toFixed(2)}s`);
+            return;
+        }
+
+        audio.currentTime = Math.max(0, Math.min(expectedPos, audio.duration - 0.1));
+        audio.play().catch(err => console.error('Audio play failed:', err));
+
+        console.log(`Audio playing at ${audio.currentTime.toFixed(2)}s (expected: ${expectedPos.toFixed(2)}s)`);
+    };
 
     // Calculate when to start
     const now = getSyncedTime();
     const delay = startTime - now;
 
     if (delay > 50) {
-        // Start in the future - wait then play
+        // Start in the future
         console.log(`Waiting ${Math.round(delay)}ms before starting audio`);
         setTimeout(() => {
-            audio.currentTime = 0;
-            audio.play().catch(err => console.error('Audio play failed:', err));
-            currentAudio = audio;
+            startAudio();
         }, delay);
     } else if (delay >= -5000) {
-        // Slightly late or on time - start with offset
-        // For looping audio, calculate position within loop
-        const offset = Math.abs(delay) / 1000;
-        console.log(`Starting audio with ${Math.round(delay)}ms offset (${offset.toFixed(2)}s into track)`);
-
-        // Wait for audio metadata to load
-        audio.addEventListener('loadedmetadata', () => {
-            const actualOffset = loop ? (offset % audio.duration) : Math.min(offset, audio.duration);
-            audio.currentTime = actualOffset;
-            audio.play().catch(err => console.error('Audio play failed:', err));
-        }, { once: true });
-
-        // Trigger metadata load if needed
-        audio.load();
-        currentAudio = audio;
+        // Start now with offset
+        startAudio();
     } else {
         console.warn(`Too late to start audio (${Math.round(delay)}ms behind), skipping`);
+        return;
+    }
+
+    currentAudio = audio;
+
+    // If looping, set up manual loop management
+    if (loop) {
+        // Monitor playback and handle looping
+        const checkSync = () => {
+            if (!currentAudio || currentAudio !== audio) {
+                // Audio was stopped
+                if (loopState && loopState.checkInterval) {
+                    clearInterval(loopState.checkInterval);
+                    loopState = null;
+                }
+                return;
+            }
+
+            const expectedPos = getExpectedPosition();
+            const actualPos = audio.currentTime;
+            const drift = Math.abs(expectedPos - actualPos);
+
+            // If we've drifted too much (>100ms), restart at correct position
+            if (drift > 0.1 && !audio.paused && !audio.ended) {
+                console.log(`Audio drift detected: ${drift.toFixed(2)}s, resyncing...`);
+                audio.currentTime = expectedPos;
+            }
+
+            // If we're near the end, restart the loop
+            if (audio.duration - actualPos < 0.1 && !audio.paused) {
+                console.log('Restarting loop...');
+                audio.currentTime = 0;
+                audio.play().catch(err => console.error('Loop restart failed:', err));
+            }
+        };
+
+        // Check sync every 200ms
+        const checkInterval = setInterval(checkSync, 200);
+
+        loopState = {
+            startTime: startTime,
+            duration: audio.duration,
+            checkInterval: checkInterval
+        };
+
+        // Also handle the 'ended' event as a backup
+        audio.addEventListener('ended', () => {
+            if (loop && currentAudio === audio) {
+                console.log('Audio ended, restarting loop...');
+                audio.currentTime = 0;
+                audio.play().catch(err => console.error('Loop restart failed:', err));
+            }
+        });
     }
 }
 
@@ -909,6 +974,12 @@ function stopAudio() {
         currentAudio.pause();
         currentAudio.currentTime = 0;
         console.log('Audio stopped');
+    }
+
+    // Clear loop management
+    if (loopState && loopState.checkInterval) {
+        clearInterval(loopState.checkInterval);
+        loopState = null;
     }
 }
 
