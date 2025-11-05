@@ -6,11 +6,14 @@ console.log('CrowdPlay initialized!');
 // ============================================================================
 
 // Firebase configuration
-// FIXED: Changed databaseURL to use .firebaseio.com instead of .firebasedatabase.app
+// NOTE: Check Firebase Console for the exact databaseURL for your region
+// For europe-west1, try both formats if one doesn't work:
+//   Option 1: https://PROJECT-default-rtdb.firebaseio.com (without region)
+//   Option 2: https://PROJECT-default-rtdb.REGION.firebasedatabase.app
 const firebaseConfig = {
   apiKey: "AIzaSyAh0Dh_TE0r3PYahE9B86Jo3vui1QW96rU",
   authDomain: "crowdplay-2025.firebaseapp.com",
-  databaseURL: "https://crowdplay-2025-default-rtdb.europe-west1.firebaseio.com",  // Fixed: was .firebasedatabase.app
+  databaseURL: "https://crowdplay-2025-default-rtdb.firebaseio.com",  // Try without region first
   projectId: "crowdplay-2025",
   storageBucket: "crowdplay-2025.firebasestorage.app",
   messagingSenderId: "470091878545",
