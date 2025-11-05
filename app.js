@@ -164,6 +164,14 @@ let syncSampleCount = 0;         // Number of sync samples received
 const SYNC_SAMPLES_NEEDED = 1;  // Firebase offset is already accurate, only need 1 sample
 const SYNC_FILTER_K = 0.75;      // Filter constant: higher = slower to adapt
 
+// Latency tracking (Conductor only)
+let clientLatencies = new Map();  // clientId -> {latency, lastSeen}
+const MAX_LATENCY_MS = 5000;      // Ignore latencies > 5s
+const LATENCY_PROBE_INTERVAL = 10000;  // Send probes every 10s
+
+// Participant ID (Participant only)
+let participantId = null;
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Page loaded and ready!');
 
@@ -223,6 +231,12 @@ function initConductor() {
 
     // Listen for participants
     listenForParticipants();
+
+    // Start periodic state broadcasts (for latency probes and state sync)
+    startPeriodicStateBroadcast();
+
+    // Listen for client heartbeats
+    listenForHeartbeats();
 }
 
 function setupConductorKeyboard() {
@@ -248,7 +262,7 @@ function sendCommand(command) {
     const commandRef = db.ref(`rooms/${roomId}/toClients`).push();
     commandRef.set({
         ...command,
-        timestamp: Date.now()
+        timestamp: getSyncedTime()  // Use synced time for accurate latency measurement
     });
 }
 
@@ -265,6 +279,114 @@ function listenForParticipants() {
         document.getElementById('participant-count').textContent = count;
         console.log('Participant count:', count);
     });
+}
+
+// Start periodic state broadcasts (includes latency probe)
+function startPeriodicStateBroadcast() {
+    if (!db || !roomId) {
+        console.error('Firebase not initialized or no room ID');
+        return;
+    }
+
+    // Send initial state immediately
+    sendStateUpdate();
+
+    // Then send every 10 seconds
+    setInterval(() => {
+        sendStateUpdate();
+    }, LATENCY_PROBE_INTERVAL);
+}
+
+function sendStateUpdate() {
+    sendCommand({
+        type: 'state',
+        // Add game state here as we build it out
+        // For now, just used for latency probe (timestamp is added by sendCommand)
+    });
+}
+
+// Listen for heartbeat messages from clients
+function listenForHeartbeats() {
+    if (!db || !roomId) {
+        console.error('Firebase not initialized or no room ID');
+        return;
+    }
+
+    const heartbeatRef = db.ref(`rooms/${roomId}/toController`);
+
+    heartbeatRef.on('child_added', (snapshot) => {
+        const message = snapshot.val();
+
+        if (message.type === 'heartbeat') {
+            const clientId = message.clientId;
+            const latency = message.latency;
+
+            // Update latency tracking
+            if (latency < MAX_LATENCY_MS) {
+                clientLatencies.set(clientId, {
+                    latency: latency,
+                    lastSeen: Date.now()
+                });
+            }
+
+            // Clean up old/slow clients (not seen in 30s)
+            const now = Date.now();
+            for (const [id, data] of clientLatencies.entries()) {
+                if (now - data.lastSeen > 30000) {
+                    clientLatencies.delete(id);
+                }
+            }
+
+            // Update display
+            updateLatencyDisplay();
+
+            // Remove the heartbeat message to keep database clean
+            snapshot.ref.remove();
+        }
+    });
+}
+
+// Calculate 95th percentile latency from all clients
+function calculate95thPercentileLatency() {
+    if (clientLatencies.size === 0) return 0;
+
+    const latencies = Array.from(clientLatencies.values())
+        .map(data => data.latency)
+        .sort((a, b) => a - b);
+
+    const index = Math.ceil(latencies.length * 0.95) - 1;
+    return latencies[Math.max(0, index)];
+}
+
+// Update the latency display in conductor UI
+function updateLatencyDisplay() {
+    const latency95th = calculate95thPercentileLatency();
+    document.getElementById('latency-95th').textContent = latency95th > 0 ? `${Math.round(latency95th)}ms` : '--';
+
+    // Update per-client latency list
+    const listEl = document.getElementById('client-latencies');
+    if (!listEl) return;
+
+    if (clientLatencies.size === 0) {
+        listEl.innerHTML = '<p style="opacity: 0.6;">No latency data yet</p>';
+        return;
+    }
+
+    // Sort by latency (worst first)
+    const sortedClients = Array.from(clientLatencies.entries())
+        .sort((a, b) => b[1].latency - a[1].latency);
+
+    listEl.innerHTML = sortedClients.map(([clientId, data]) => {
+        const shortId = clientId.substring(0, 12) + '...';
+        const latency = Math.round(data.latency);
+
+        // Color code: <200ms green, <500ms yellow, >500ms red
+        let colorClass = 'latency-good';
+        if (latency > 500) colorClass = 'latency-bad';
+        else if (latency > 200) colorClass = 'latency-ok';
+
+        return `<div class="latency-item"><span>${shortId}</span><span class="${colorClass}">${latency}ms</span></div>`;
+    }).join('');
 }
 
 // ============================================================================
@@ -294,8 +416,8 @@ function registerParticipant() {
         return;
     }
 
-    // Generate a unique participant ID
-    const participantId = 'participant_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    // Generate a unique participant ID (stored globally for heartbeats)
+    participantId = 'participant_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
     const participantRef = db.ref(`rooms/${roomId}/participants/${participantId}`);
     participantRef.set({
@@ -334,7 +456,18 @@ function listenForCommands() {
 function handleCommand(command) {
     const display = document.getElementById('display');
 
-    if (command.type === 'color') {
+    if (command.type === 'state') {
+        // Conductor sent a state update (includes latency probe)
+        // Calculate latency: how long did it take for message to arrive?
+        const latency = getSyncedTime() - command.timestamp;
+
+        // Send heartbeat back to conductor with latency measurement
+        sendHeartbeat(latency);
+
+        console.log(`State update received, latency: ${Math.round(latency)}ms`);
+
+        // TODO: Apply any game state from command
+    } else if (command.type === 'color') {
         display.style.backgroundColor = command.value;
         console.log('Changed color to:', command.value);
 
@@ -344,6 +477,22 @@ function handleCommand(command) {
             statusEl.style.display = 'none';
         }
     }
+}
+
+// Send heartbeat to conductor with latency measurement
+function sendHeartbeat(latency) {
+    if (!db || !roomId || !participantId) {
+        console.error('Cannot send heartbeat: Firebase not initialized or no participant ID');
+        return;
+    }
+
+    const heartbeatRef = db.ref(`rooms/${roomId}/toController`).push();
+    heartbeatRef.set({
+        type: 'heartbeat',
+        clientId: participantId,
+        latency: Math.round(latency),
+        timestamp: getSyncedTime()
+    });
 }
 
 // ============================================================================
