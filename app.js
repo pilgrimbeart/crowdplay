@@ -177,12 +177,12 @@ let participantId = null;
 let participantName = null;
 let wakeLock = null;  // Screen wake lock
 
-// Audio playback state (Participant only)
-let currentAudio = null;  // Currently playing audio element
-let audioCache = new Map();  // filename -> Audio object (for preloading)
+// Audio playback state (using Web Audio API)
+let audioContext = null;  // Web Audio API context
+let audioBuffers = new Map();  // filename -> AudioBuffer (decoded audio data)
+let currentSource = null;  // Currently playing AudioBufferSourceNode
 let audioFilesLoaded = false;  // Whether all audio files have been preloaded
 let audioLoadProgress = { loaded: 0, total: 0 };  // Track loading progress
-let loopState = null;  // For manual loop management: {startTime, duration, checkInterval}
 
 // Drum hit detection (Participant only)
 let lastDrumHitTime = 0;  // Last time we sent a drum hit event
@@ -528,9 +528,15 @@ function listenForProjectorParticipants() {
 // PARTICIPANT MODE
 // ============================================================================
 
-// Preload all audio files from manifest
+// Preload all audio files from manifest using Web Audio API
 async function preloadAudioFiles() {
     try {
+        // Create AudioContext (may need user interaction first)
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            console.log('✓ AudioContext created');
+        }
+
         console.log('Fetching audio manifest...');
         const response = await fetch('samples/manifest.json');
         const manifest = await response.json();
@@ -539,38 +545,31 @@ async function preloadAudioFiles() {
         audioLoadProgress.total = files.length;
         audioLoadProgress.loaded = 0;
 
-        console.log(`Preloading ${files.length} audio files...`);
+        console.log(`Preloading ${files.length} audio files with Web Audio API...`);
         updateSyncStatus();
 
-        // Preload all files
-        const loadPromises = files.map((file, index) => {
-            return new Promise((resolve, reject) => {
-                const audio = new Audio(file);
-                audio.preload = 'auto';
+        // Preload all files using fetch + decodeAudioData
+        const loadPromises = files.map(async (file) => {
+            try {
+                const response = await fetch(file);
+                const arrayBuffer = await response.arrayBuffer();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-                audio.addEventListener('canplaythrough', () => {
-                    audioCache.set(file, audio);
-                    audioLoadProgress.loaded++;
-                    console.log(`Loaded ${file} (${audioLoadProgress.loaded}/${audioLoadProgress.total})`);
-                    updateSyncStatus();
-                    resolve();
-                }, { once: true });
-
-                audio.addEventListener('error', (e) => {
-                    console.error(`Failed to load ${file}:`, e);
-                    audioLoadProgress.loaded++;
-                    updateSyncStatus();
-                    resolve();  // Continue even if one file fails
-                });
-
-                // Trigger loading
-                audio.load();
-            });
+                audioBuffers.set(file, audioBuffer);
+                audioLoadProgress.loaded++;
+                console.log(`Loaded ${file} (${audioLoadProgress.loaded}/${audioLoadProgress.total})`);
+                updateSyncStatus();
+            } catch (error) {
+                console.error(`Failed to load ${file}:`, error);
+                audioLoadProgress.loaded++;
+                updateSyncStatus();
+                // Continue even if one file fails
+            }
         });
 
         await Promise.all(loadPromises);
         audioFilesLoaded = true;
-        console.log('✓ All audio files preloaded');
+        console.log('✓ All audio files preloaded and decoded');
         updateSyncStatus();
     } catch (error) {
         console.error('Failed to load audio manifest:', error);
@@ -664,7 +663,13 @@ async function requestWakeLock() {
 
 async function unlockAudio() {
     try {
-        // Play a silent audio file to unlock audio playback
+        // Resume AudioContext if it's suspended (required on iOS and some browsers)
+        if (audioContext && audioContext.state === 'suspended') {
+            await audioContext.resume();
+            console.log('✓ AudioContext resumed');
+        }
+
+        // Also play silent audio as backup for older browsers
         const silentAudio = new Audio();
         silentAudio.src = 'data:audio/mp3;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
         await silentAudio.play();
@@ -847,15 +852,15 @@ function sendDrumHit(magnitude) {
     });
 }
 
-// Play audio synchronized to a specific start time
+// Play audio synchronized to a specific start time using Web Audio API
 function playAudioSynced(file, startTime, loop) {
     if (!isSynced) {
         console.warn('Cannot play audio: not yet time-synced');
         return;
     }
 
-    if (!audioFilesLoaded) {
-        console.warn('Cannot play audio: files still loading');
+    if (!audioContext || !audioFilesLoaded) {
+        console.warn('Cannot play audio: AudioContext not ready or files still loading');
         return;
     }
 
@@ -864,142 +869,86 @@ function playAudioSynced(file, startTime, loop) {
     // Stop any currently playing audio
     stopAudio();
 
-    // Get or create audio element
-    let audio = audioCache.get(file);
-    if (!audio) {
-        audio = new Audio(file);
-        audio.preload = 'auto';
-        audioCache.set(file, audio);
-    }
-
-    // IMPORTANT: Don't use native loop - we'll handle it manually for better sync
-    audio.loop = false;
-
-    // Function to calculate where we should be in the audio based on synced time
-    const getExpectedPosition = () => {
-        const elapsed = (getSyncedTime() - startTime) / 1000; // seconds since start
-        if (!loop || !audio.duration) return elapsed;
-        return elapsed % audio.duration; // Wrap around for loops
-    };
-
-    // Function to start/restart audio at the correct position
-    const startAudio = () => {
-        const expectedPos = getExpectedPosition();
-
-        if (expectedPos < 0 || expectedPos > audio.duration + 5) {
-            console.warn(`Invalid audio position: ${expectedPos.toFixed(2)}s`);
-            return;
-        }
-
-        audio.currentTime = Math.max(0, Math.min(expectedPos, audio.duration - 0.1));
-        audio.play().catch(err => console.error('Audio play failed:', err));
-
-        console.log(`Audio playing at ${audio.currentTime.toFixed(2)}s (expected: ${expectedPos.toFixed(2)}s)`);
-    };
-
-    // Calculate when to start
-    const now = getSyncedTime();
-    const delay = startTime - now;
-
-    if (delay > 50) {
-        // Start in the future
-        console.log(`Waiting ${Math.round(delay)}ms before starting audio`);
-        setTimeout(() => {
-            startAudio();
-        }, delay);
-    } else if (delay >= -5000) {
-        // Start now with offset
-        startAudio();
-    } else {
-        console.warn(`Too late to start audio (${Math.round(delay)}ms behind), skipping`);
+    // Get the decoded audio buffer
+    const audioBuffer = audioBuffers.get(file);
+    if (!audioBuffer) {
+        console.error(`Audio buffer not found for: ${file}`);
         return;
     }
 
-    currentAudio = audio;
+    // Create a buffer source node
+    const source = audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.loop = loop;
+    source.connect(audioContext.destination);
 
-    // If looping, set up manual loop management
-    if (loop) {
-        // Monitor playback and handle looping
-        const checkSync = () => {
-            if (!currentAudio || currentAudio !== audio) {
-                // Audio was stopped
-                if (loopState && loopState.checkInterval) {
-                    clearInterval(loopState.checkInterval);
-                    loopState = null;
-                }
-                return;
-            }
+    // Calculate when to start in AudioContext time
+    const now = getSyncedTime();
+    const delay = startTime - now; // milliseconds until start
 
-            const expectedPos = getExpectedPosition();
-            const actualPos = audio.currentTime;
-            const drift = Math.abs(expectedPos - actualPos);
+    if (delay > -5000) {
+        // Convert to AudioContext time
+        const audioContextStartTime = audioContext.currentTime + (delay / 1000);
 
-            // If we've drifted too much (>100ms), restart at correct position
-            if (drift > 0.1 && !audio.paused && !audio.ended) {
-                console.log(`Audio drift detected: ${drift.toFixed(2)}s, resyncing...`);
-                audio.currentTime = expectedPos;
-            }
+        if (delay > 50) {
+            // Schedule in the future
+            console.log(`Scheduling audio to start in ${Math.round(delay)}ms (at audioContext time ${audioContextStartTime.toFixed(3)}s)`);
+            source.start(audioContextStartTime);
+        } else if (delay < 0) {
+            // We're late - start with offset
+            const offset = Math.abs(delay) / 1000;
+            const actualOffset = loop ? (offset % audioBuffer.duration) : Math.min(offset, audioBuffer.duration);
 
-            // If we're near the end, restart the loop
-            if (audio.duration - actualPos < 0.1 && !audio.paused) {
-                console.log('Restarting loop...');
-                audio.currentTime = 0;
-                audio.play().catch(err => console.error('Loop restart failed:', err));
-            }
-        };
+            console.log(`Starting audio immediately with ${Math.round(delay)}ms offset (${actualOffset.toFixed(2)}s into track)`);
+            source.start(audioContext.currentTime, actualOffset);
+        } else {
+            // Start now
+            console.log('Starting audio immediately');
+            source.start(audioContext.currentTime);
+        }
 
-        // Check sync every 200ms
-        const checkInterval = setInterval(checkSync, 200);
-
-        loopState = {
-            startTime: startTime,
-            duration: audio.duration,
-            checkInterval: checkInterval
-        };
-
-        // Also handle the 'ended' event as a backup
-        audio.addEventListener('ended', () => {
-            if (loop && currentAudio === audio) {
-                console.log('Audio ended, restarting loop...');
-                audio.currentTime = 0;
-                audio.play().catch(err => console.error('Loop restart failed:', err));
-            }
-        });
+        currentSource = source;
+    } else {
+        console.warn(`Too late to start audio (${Math.round(delay)}ms behind), skipping`);
     }
 }
 
 // Stop currently playing audio
 function stopAudio() {
-    if (currentAudio) {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
+    if (currentSource) {
+        try {
+            currentSource.stop();
+            currentSource.disconnect();
+        } catch (err) {
+            // Source may have already stopped
+        }
+        currentSource = null;
         console.log('Audio stopped');
-    }
-
-    // Clear loop management
-    if (loopState && loopState.checkInterval) {
-        clearInterval(loopState.checkInterval);
-        loopState = null;
     }
 }
 
-// Play drum sound (instant feedback, no sync needed)
+// Play drum sound (instant feedback, no sync needed) using Web Audio API
 function playDrumSound() {
-    const drumFile = 'samples/drum.mp3';
-
-    // Get or create drum audio element
-    let drumAudio = audioCache.get(drumFile);
-    if (!drumAudio) {
-        drumAudio = new Audio(drumFile);
-        drumAudio.preload = 'auto';
-        audioCache.set(drumFile, drumAudio);
+    if (!audioContext || !audioFilesLoaded) {
+        console.warn('Cannot play drum: AudioContext not ready');
+        return;
     }
 
-    // Reset to beginning and play
-    drumAudio.currentTime = 0;
-    drumAudio.play().catch(err => {
-        console.error('Drum sound play failed:', err);
-    });
+    const drumFile = 'samples/drum.mp3';
+    const drumBuffer = audioBuffers.get(drumFile);
+
+    if (!drumBuffer) {
+        console.error(`Drum buffer not found: ${drumFile}`);
+        return;
+    }
+
+    // Create a new source for this drum hit (don't stop looping audio)
+    const drumSource = audioContext.createBufferSource();
+    drumSource.buffer = drumBuffer;
+    drumSource.connect(audioContext.destination);
+    drumSource.start(audioContext.currentTime);
+
+    console.log('Drum sound played');
 }
 
 // ============================================================================
