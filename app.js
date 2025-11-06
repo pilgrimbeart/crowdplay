@@ -197,7 +197,6 @@ let wakeLock = null;  // Screen wake lock
 let audioContext = null;  // Web Audio API context
 let audioBuffers = new Map();  // filename -> AudioBuffer (decoded audio data)
 let currentSource = null;  // Currently playing AudioBufferSourceNode
-let audioStartTimeout = null;  // Timeout for scheduled audio start
 let audioFilesLoaded = false;  // Whether all audio files have been preloaded
 let audioLoadProgress = { loaded: 0, total: 0 };  // Track loading progress
 
@@ -948,7 +947,7 @@ function playAudioSynced(file, startTime, loop) {
         return;
     }
 
-    // Calculate where we should be in the audio RIGHT NOW based on synced time
+    // Calculate where we should be in the audio based on synced time
     const now = getSyncedTime();
     const elapsed = (now - startTime) / 1000; // seconds since scheduled start
 
@@ -963,8 +962,10 @@ function playAudioSynced(file, startTime, loop) {
     source.loop = loop;
     source.connect(audioContext.destination);
 
-    // Calculate the offset into the audio
+    // Calculate offset and when to start in AudioContext time
     let offset = 0;
+    let whenToStart = audioContext.currentTime;
+
     if (elapsed > 0) {
         // We're late - calculate position in the loop
         if (loop) {
@@ -976,37 +977,27 @@ function playAudioSynced(file, startTime, loop) {
                 return;
             }
         }
-        console.log(`Starting audio with ${elapsed.toFixed(2)}s offset (position: ${offset.toFixed(2)}s)`);
+        // Start immediately
+        whenToStart = audioContext.currentTime;
+        console.log(`Late by ${elapsed.toFixed(3)}s - starting at offset ${offset.toFixed(3)}s`);
     } else {
-        // We're early - wait until the exact moment
-        const waitTime = Math.abs(elapsed);
-        console.log(`Waiting ${waitTime.toFixed(3)}s before starting audio`);
-        audioStartTimeout = setTimeout(() => {
-            if (currentSource === source) {
-                source.start(audioContext.currentTime);
-                console.log('Audio started on schedule');
-            }
-        }, waitTime * 1000);
-        currentSource = source;
-        return;
+        // We're early - schedule precisely in the future
+        // Use AudioContext time which has millisecond precision
+        whenToStart = audioContext.currentTime + Math.abs(elapsed);
+        offset = 0;
+        console.log(`Early by ${Math.abs(elapsed).toFixed(3)}s - scheduling at audioContext time ${whenToStart.toFixed(3)}s`);
     }
 
-    // Start immediately at the calculated offset
-    source.start(audioContext.currentTime, offset);
+    // Start at the calculated time with the calculated offset
+    // This is PRECISE - Web Audio API guarantees sample-accurate timing
+    source.start(whenToStart, offset);
     currentSource = source;
 
-    console.log(`Audio playing at offset ${offset.toFixed(2)}s / ${audioBuffer.duration.toFixed(2)}s`);
+    console.log(`Audio scheduled: start=${whenToStart.toFixed(3)}s, offset=${offset.toFixed(3)}s, duration=${audioBuffer.duration.toFixed(3)}s`);
 }
 
 // Stop currently playing audio
 function stopAudio() {
-    // Cancel any scheduled start
-    if (audioStartTimeout) {
-        clearTimeout(audioStartTimeout);
-        audioStartTimeout = null;
-    }
-
-    // Stop currently playing source
     if (currentSource) {
         try {
             currentSource.stop();
