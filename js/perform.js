@@ -685,10 +685,13 @@ class PerformChompGame extends Game {
                         baddie.dead = true;
                         team.score += 20;
                     } else {
-                        // Baddie eats pacman
+                        // Baddie eats pacman - respawn at safe random location
                         console.log(`${baddie.type} killed ${team.name} at distance ${dist.toFixed(1)}`);
-                        team.x = team.startX;
-                        team.y = team.startY;
+                        const safePos = this.findSafeRespawnPosition();
+                        team.x = safePos.x;
+                        team.y = safePos.y;
+                        team.vx = 0;
+                        team.vy = 0;
                         team.score = Math.max(0, team.score - 20);
                     }
                 }
@@ -747,6 +750,36 @@ class PerformChompGame extends Game {
 
     distance(x1, y1, x2, y2) {
         return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+    }
+
+    findSafeRespawnPosition() {
+        // Try to find a position not near any baddies
+        const margin = 50;
+        const minDistanceFromBaddie = 150;
+
+        for (let attempts = 0; attempts < 20; attempts++) {
+            const x = margin + Math.random() * (this.canvas.width - 2 * margin);
+            const y = margin + Math.random() * (this.canvas.height - 2 * margin);
+
+            // Check if this position is far enough from all baddies
+            let isSafe = true;
+            for (const baddie of this.baddies) {
+                if (this.distance(x, y, baddie.x, baddie.y) < minDistanceFromBaddie) {
+                    isSafe = false;
+                    break;
+                }
+            }
+
+            if (isSafe) {
+                return { x, y };
+            }
+        }
+
+        // If we couldn't find a safe spot, return a random position anyway
+        return {
+            x: margin + Math.random() * (this.canvas.width - 2 * margin),
+            y: margin + Math.random() * (this.canvas.height - 2 * margin)
+        };
     }
 
     drawHUD(timeLeft) {

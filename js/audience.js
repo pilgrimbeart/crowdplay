@@ -567,6 +567,10 @@ class AudienceChompGame extends Game {
         super(role, config);
         this.orientationUpdateInterval = null;
         this.lastOrientation = { beta: 0, gamma: 0 };
+        this.canvas = null;
+        this.ctx = null;
+        this.currentDx = 0;
+        this.currentDy = 0;
     }
 
     async init() {
@@ -578,11 +582,17 @@ class AudienceChompGame extends Game {
 
         display.style.backgroundColor = teamColor;
         display.innerHTML = `
-            <h1 style="font-size: 3rem;">🟡</h1>
-            <p style="font-size: 2rem; font-weight: bold;">Team ${teamName}</p>
-            <p style="font-size: 1.2rem; margin-top: 2rem;">Tilt your phone to steer!</p>
-            <p id="chomp-debug" style="font-size: 0.9rem; margin-top: 1rem; opacity: 0.7;"></p>
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+                <canvas id="audience-pacman" width="200" height="200" style="margin: 2rem 0;"></canvas>
+                <p style="font-size: 2rem; font-weight: bold;">Team ${teamName}</p>
+                <p style="font-size: 1.2rem; margin-top: 1rem;">Tilt your phone to steer!</p>
+                <p id="chomp-debug" style="font-size: 0.9rem; margin-top: 1rem; opacity: 0.7;"></p>
+            </div>
         `;
+
+        this.canvas = document.getElementById('audience-pacman');
+        this.ctx = this.canvas.getContext('2d');
+        this.drawPacman();
 
         // Request device orientation permission (iOS 13+)
         if (typeof DeviceOrientationEvent !== 'undefined' &&
@@ -611,12 +621,17 @@ class AudienceChompGame extends Game {
             const { beta, gamma } = this.lastOrientation;
 
             // Convert orientation to direction vector
-            // beta: front-to-back tilt (-180 to 180), negative when tilted forward
+            // beta: front-to-back tilt (-180 to 180), negative when tilted forward (down), positive when tilted back (up)
             // gamma: left-to-right tilt (-90 to 90), positive when tilted right
 
             // Normalize to -1 to 1 range
             const dx = Math.max(-1, Math.min(1, gamma / 45)); // 45 degrees = full tilt
-            const dy = Math.max(-1, Math.min(1, -beta / 45)); // Negative beta = forward = positive dy
+            const dy = Math.max(-1, Math.min(1, beta / 45)); // Positive beta (tilt up) = positive dy (move up)
+
+            // Update visual indicator
+            this.currentDx = dx;
+            this.currentDy = dy;
+            this.drawPacman();
 
             // Only send if magnitude is significant
             const magnitude = Math.sqrt(dx * dx + dy * dy);
@@ -655,6 +670,62 @@ class AudienceChompGame extends Game {
             dy: dy,
             timestamp: getSyncedTime()
         });
+    }
+
+    drawPacman() {
+        if (!this.ctx || !this.canvas) return;
+
+        const centerX = this.canvas.width / 2;
+        const centerY = this.canvas.height / 2;
+        const radius = 60;
+
+        // Clear canvas
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Calculate angle based on direction
+        let angle = 0;
+        if (this.currentDx !== 0 || this.currentDy !== 0) {
+            // In canvas: positive X = right, positive Y = down
+            // We want the Pacman to face the direction of tilt
+            angle = Math.atan2(this.currentDy, this.currentDx);
+        }
+
+        // Animate mouth
+        const mouthAngle = Math.abs(Math.sin(Date.now() * 0.01)) * 0.3;
+
+        // Draw Pacman
+        this.ctx.save();
+        this.ctx.translate(centerX, centerY);
+        this.ctx.rotate(angle);
+
+        this.ctx.fillStyle = '#FFD700';
+        this.ctx.beginPath();
+        this.ctx.arc(0, 0, radius, mouthAngle, Math.PI * 2 - mouthAngle);
+        this.ctx.lineTo(0, 0);
+        this.ctx.closePath();
+        this.ctx.fill();
+
+        // Draw eye
+        this.ctx.fillStyle = '#000';
+        this.ctx.beginPath();
+        this.ctx.arc(radius / 3, -radius / 3, 6, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        this.ctx.restore();
+
+        // Draw direction indicator (arrow)
+        if (this.currentDx !== 0 || this.currentDy !== 0) {
+            const arrowLength = 40;
+            const arrowX = centerX + this.currentDx * arrowLength;
+            const arrowY = centerY + this.currentDy * arrowLength;
+
+            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            this.ctx.lineWidth = 4;
+            this.ctx.beginPath();
+            this.ctx.moveTo(centerX, centerY);
+            this.ctx.lineTo(arrowX, arrowY);
+            this.ctx.stroke();
+        }
     }
 
     async teardown() {
