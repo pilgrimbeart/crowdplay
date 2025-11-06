@@ -423,7 +423,9 @@ class AudienceClapGame extends Game {
         document.getElementById('audience-display').style.backgroundColor = '#ff6b6b';
 
         // Play clap loop synchronized with Perform
-        const startTime = getSyncedTime() + 500;
+        // Use startTime from Perform's config, or fallback to current time + 500ms
+        const startTime = this.config.startTime || (getSyncedTime() + 500);
+        console.log('Clap game starting at:', startTime, 'current time:', getSyncedTime(), 'late by:', getSyncedTime() - startTime);
         playAudioSynced('samples/clap.mp3', startTime, true);
     }
 
@@ -461,7 +463,9 @@ class AudienceMusicGame extends Game {
         document.getElementById('audience-display').style.backgroundColor = '#9b59b6';
 
         // Play music synchronized with Perform
-        const startTime = getSyncedTime() + 500;
+        // Use startTime from Perform's config, or fallback to current time + 500ms
+        const startTime = this.config.startTime || (getSyncedTime() + 500);
+        console.log('Music game starting at:', startTime, 'current time:', getSyncedTime(), 'late by:', getSyncedTime() - startTime);
         playAudioSynced('samples/sandstorm.mp3', startTime, false);
     }
 

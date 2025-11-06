@@ -433,6 +433,9 @@ class PerformClapGame extends Game {
         // Schedule clap loop
         const startTime = getSyncedTime() + 1000;
         playAudioSynced('samples/clap.mp3', startTime, true);
+
+        // Broadcast startTime to audience so they sync with us
+        broadcastGameState('clap', { startTime: startTime });
     }
 
     async teardown() {
@@ -464,6 +467,9 @@ class PerformMusicGame extends Game {
 
         const startTime = getSyncedTime() + 1000;
         playAudioSynced('samples/sandstorm.mp3', startTime, false);
+
+        // Broadcast startTime to audience so they sync with us
+        broadcastGameState('music', { startTime: startTime });
     }
 
     async teardown() {
