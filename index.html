@@ -10,39 +10,60 @@
     <!-- Connection Status Indicator -->
     <div id="status-indicator" class="status-dot" title="Connection status"></div>
 
-    <!-- Landing Page (no URL params) -->
-    <div id="landing-view" class="view" style="display: none;">
-        <div class="container">
-            <h1>CrowdPlay</h1>
-            <p class="subtitle">Audience Participation Game</p>
-            <div class="instructions">
-                <p>To start as conductor, add <code>?conduct</code> to the URL</p>
-                <p>To join as participant, scan the QR code shown by the conductor</p>
+    <!-- Perform View (Laptop/Projected) -->
+    <div id="perform-view" class="view" style="display: none;">
+        <div class="perform-container">
+            <div class="perform-header">
+                <h1>CrowdPlay Perform</h1>
+                <div class="perform-info">
+                    <span>Room: <strong id="perform-room-id"></strong></span>
+                    <span>Participants: <strong id="perform-participant-count">0</strong></span>
+                    <span>Latency: <strong id="perform-latency-95th">--</strong></span>
+                </div>
+            </div>
+            <div class="perform-main">
+                <div class="perform-display-container">
+                    <div id="perform-display" class="fullscreen-display">
+                        <h1>Loading...</h1>
+                    </div>
+                    <div id="perform-qr-code" style="display: none; margin-top: 2rem;"></div>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Conductor View -->
-    <div id="conductor-view" class="view" style="display: none;">
-        <div class="container">
-            <h1>Conductor Mode</h1>
-            <div id="room-info">
-                <p>Room: <span id="room-id"></span></p>
-                <p>Participants: <span id="participant-count">0</span></p>
-                <p>Latency (95th): <span id="latency-95th">--</span></p>
+    <!-- Control View (Mobile/Remote) -->
+    <div id="control-view" class="view" style="display: none;">
+        <div class="control-container">
+            <div class="control-header">
+                <h2>CrowdPlay Control</h2>
+                <div class="control-diagnostics">
+                    <div class="diagnostic-item">
+                        <span class="diagnostic-label">Room:</span>
+                        <span class="diagnostic-value" id="control-room-id">--</span>
+                    </div>
+                    <div class="diagnostic-item">
+                        <span class="diagnostic-label">Participants:</span>
+                        <span class="diagnostic-value" id="control-participant-count">0</span>
+                    </div>
+                    <div class="diagnostic-item">
+                        <span class="diagnostic-label">Latency (95th):</span>
+                        <span class="diagnostic-value" id="control-latency-95th">--</span>
+                    </div>
+                    <div class="diagnostic-item">
+                        <span class="diagnostic-label">Game:</span>
+                        <span class="diagnostic-value" id="control-current-game">none</span>
+                    </div>
+                </div>
             </div>
-            <div id="client-latencies" class="latency-list"></div>
-            <div id="qr-code"></div>
-            <div class="controls">
-                <p>Press <kbd>B</kbd> for black, <kbd>W</kbd> for white</p>
-                <p>Press <kbd>C</kbd> to play clap (loop), <kbd>M</kbd> for music (once)</p>
-                <p>Press <kbd>S</kbd> to stop audio</p>
-                <p>Press <kbd>F</kbd> to flash (sync test)</p>
+            <div class="control-buttons-container">
+                <h3>Select Game</h3>
+                <div id="control-game-buttons" class="control-game-buttons"></div>
             </div>
         </div>
     </div>
 
-    <!-- Name Entry Screen (Participant) -->
+    <!-- Name Entry Screen (Audience) -->
     <div id="name-entry-view" class="view" style="display: none;">
         <div class="container">
             <h1>CrowdPlay</h1>
@@ -61,19 +82,24 @@
         </div>
     </div>
 
-    <!-- Projector View -->
-    <div id="projector-view" class="view" style="display: none;">
-        <div class="fullscreen-display" id="projector-display">
-            <h1 style="font-size: 5rem;">CrowdPlay</h1>
-            <p id="projector-status" style="font-size: 2rem;">Connecting...</p>
-            <p id="projector-participant-count" style="font-size: 3rem; margin-top: 2rem;"></p>
+    <!-- Audience View (Mobile/Participant) -->
+    <div id="audience-view" class="view" style="display: none;">
+        <div id="audience-display" class="fullscreen-display">
+            <p>Connecting...</p>
         </div>
     </div>
 
-    <!-- Participant View -->
-    <div id="participant-view" class="view" style="display: none;">
-        <div class="fullscreen-display" id="display">
-            <p id="participant-status">Connecting...</p>
+    <!-- Landing Page (no URL params) -->
+    <div id="landing-view" class="view" style="display: none;">
+        <div class="container">
+            <h1>CrowdPlay</h1>
+            <p class="subtitle">Audience Participation Game</p>
+            <div class="instructions">
+                <p>Add URL parameter:</p>
+                <p><code>?perform</code> - Perform mode (laptop/projected)</p>
+                <p><code>?control&room=XXX</code> - Control mode (remote)</p>
+                <p><code>?room=XXX</code> - Audience mode (scan QR)</p>
+            </div>
         </div>
     </div>
 
@@ -81,9 +107,45 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
-    <!-- QR Code Generator -->
+    <!-- QR Code Generator (only for Perform) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
-    <script src="app.js"></script>
+    <!-- Shared code (always loaded) -->
+    <script src="js/shared.js"></script>
+
+    <!-- Role-specific routing and loading -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const params = new URLSearchParams(window.location.search);
+            const hasPerform = params.has('perform');
+            const hasControl = params.has('control');
+            const room = params.get('room');
+
+            if (hasPerform) {
+                // Perform mode
+                loadScript('js/perform.js');
+            } else if (hasControl && room) {
+                // Control mode
+                loadScript('js/control.js');
+            } else if (room) {
+                // Audience mode
+                loadScript('js/audience.js');
+            } else {
+                // Landing page
+                showView('landing-view');
+                setStatus('warning', 'Add ?perform, ?control&room=XXX, or ?room=XXX to URL');
+            }
+        });
+
+        function loadScript(src) {
+            const script = document.createElement('script');
+            script.src = src;
+            script.onerror = () => {
+                console.error(`Failed to load ${src}`);
+                alert(`Failed to load ${src}`);
+            };
+            document.body.appendChild(script);
+        }
+    </script>
 </body>
 </html>
