@@ -604,7 +604,7 @@ class AudienceChompGame extends Game {
     }
 
     startOrientationTracking() {
-        // Send orientation data to Perform 10 times per second
+        // Send orientation data to Perform 2 times per second
         this.orientationUpdateInterval = setInterval(() => {
             if (!this.active) return;
 
@@ -629,7 +629,7 @@ class AudienceChompGame extends Game {
             if (debugEl) {
                 debugEl.textContent = `dx: ${dx.toFixed(2)}, dy: ${dy.toFixed(2)}`;
             }
-        }, 100); // 10 times per second
+        }, 500); // 2 times per second
 
         // Listen for device orientation changes
         window.addEventListener('deviceorientation', this.handleOrientation.bind(this));

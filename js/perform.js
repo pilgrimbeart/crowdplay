@@ -605,8 +605,8 @@ class PerformChompGame extends Game {
         // Draw timer and scores at top
         this.drawHUD(timeLeft);
 
-        // Spawn baddies occasionally
-        if (now - this.lastBaddieSpawn > 5000 && this.baddies.length < 8) {
+        // Spawn baddies occasionally (every 3 seconds, increased from 5)
+        if (now - this.lastBaddieSpawn > 3000 && this.baddies.length < 8) {
             this.spawnBaddie();
             this.lastBaddieSpawn = now;
         }
@@ -674,16 +674,19 @@ class PerformChompGame extends Game {
             this.updateBaddie(baddie);
         });
 
-        // Check baddie collisions with pacmans
+        // Check baddie collisions with pacmans (increased from 35 to 60 for larger baddies)
         this.baddies.forEach(baddie => {
             this.teams.forEach(team => {
-                if (this.distance(baddie.x, baddie.y, team.x, team.y) < 35) {
+                const dist = this.distance(baddie.x, baddie.y, team.x, team.y);
+                if (dist < 60) {
                     if (team.powered) {
                         // Pacman eats baddie
+                        console.log(`${team.name} (powered) ate ${baddie.type} at distance ${dist.toFixed(1)}`);
                         baddie.dead = true;
                         team.score += 20;
                     } else {
                         // Baddie eats pacman
+                        console.log(`${baddie.type} killed ${team.name} at distance ${dist.toFixed(1)}`);
                         team.x = team.startX;
                         team.y = team.startY;
                         team.score = Math.max(0, team.score - 20);
@@ -851,25 +854,25 @@ class PerformChompGame extends Game {
         ctx.save();
         ctx.translate(baddie.x, baddie.y);
 
-        // Body
+        // Body (increased from 15 to 25)
         ctx.fillStyle = '#9B59B6';
         ctx.beginPath();
-        ctx.arc(0, 0, 15, 0, Math.PI * 2);
+        ctx.arc(0, 0, 25, 0, Math.PI * 2);
         ctx.fill();
 
-        // Twirling tentacles (8 of them)
+        // Twirling tentacles (8 of them, extended to 40)
         for (let i = 0; i < 8; i++) {
             const angle = (i / 8) * Math.PI * 2 + baddie.animFrame * 0.05;
-            const wave = Math.sin(baddie.animFrame * 0.1 + i) * 5;
+            const wave = Math.sin(baddie.animFrame * 0.1 + i) * 8;
             ctx.strokeStyle = '#9B59B6';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.moveTo(0, 0);
             ctx.quadraticCurveTo(
-                Math.cos(angle) * 10 + wave,
-                Math.sin(angle) * 10,
-                Math.cos(angle) * 20,
-                Math.sin(angle) * 20 + wave
+                Math.cos(angle) * 18 + wave,
+                Math.sin(angle) * 18,
+                Math.cos(angle) * 40,
+                Math.sin(angle) * 40 + wave
             );
             ctx.stroke();
         }
@@ -883,34 +886,34 @@ class PerformChompGame extends Game {
         ctx.translate(baddie.x, baddie.y);
 
         // Buzzing motion
-        const buzz = Math.sin(baddie.animFrame * 0.3) * 2;
+        const buzz = Math.sin(baddie.animFrame * 0.3) * 3;
 
-        // Body
+        // Body (increased from 12x8 to 20x13)
         ctx.fillStyle = '#FFD700';
         ctx.beginPath();
-        ctx.ellipse(buzz, 0, 12, 8, 0, 0, Math.PI * 2);
+        ctx.ellipse(buzz, 0, 20, 13, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Stripes
+        // Stripes (scaled proportionally)
         ctx.strokeStyle = '#000';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.moveTo(buzz - 6, -5);
-        ctx.lineTo(buzz - 6, 5);
-        ctx.moveTo(buzz, -5);
-        ctx.lineTo(buzz, 5);
-        ctx.moveTo(buzz + 6, -5);
-        ctx.lineTo(buzz + 6, 5);
+        ctx.moveTo(buzz - 10, -8);
+        ctx.lineTo(buzz - 10, 8);
+        ctx.moveTo(buzz, -8);
+        ctx.lineTo(buzz, 8);
+        ctx.moveTo(buzz + 10, -8);
+        ctx.lineTo(buzz + 10, 8);
         ctx.stroke();
 
-        // Wings (flapping)
+        // Wings (flapping, scaled up)
         const wingAngle = Math.sin(baddie.animFrame * 0.5) * 0.3;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
         ctx.beginPath();
-        ctx.ellipse(-5 + buzz, -8, 8, 4, -0.5 + wingAngle, 0, Math.PI * 2);
+        ctx.ellipse(-8 + buzz, -13, 13, 7, -0.5 + wingAngle, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.ellipse(-5 + buzz, 8, 8, 4, 0.5 - wingAngle, 0, Math.PI * 2);
+        ctx.ellipse(-8 + buzz, 13, 13, 7, 0.5 - wingAngle, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.restore();
