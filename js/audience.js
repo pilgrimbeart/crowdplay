@@ -7,8 +7,13 @@
 
 let participantId = null;
 let participantName = null;
+let participantTeam = null;
 let wakeLock = null;
 let currentGame = null;
+
+// Team colors
+const TEAM_COLORS = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#A8E6CF', '#FF8B94'];
+const TEAM_NAMES = ['Red', 'Cyan', 'Yellow', 'Green', 'Pink'];
 
 // Audio state
 let audioBuffers = new Map();
@@ -64,6 +69,16 @@ async function handleNameSubmit(name) {
     participantName = name;
     localStorage.setItem('crowdplay-name', name);
     console.log('Participant name:', name);
+
+    // Assign team (persistent like name)
+    const savedTeam = localStorage.getItem('crowdplay-team');
+    if (savedTeam !== null) {
+        participantTeam = parseInt(savedTeam);
+    } else {
+        participantTeam = Math.floor(Math.random() * TEAM_COLORS.length);
+        localStorage.setItem('crowdplay-team', participantTeam);
+    }
+    console.log(`Assigned to team ${participantTeam} (${TEAM_NAMES[participantTeam]})`);
 
     // Request wake lock
     await requestWakeLock();
@@ -194,7 +209,8 @@ function getGameClass(gameName) {
         'clap': AudienceClapGame,
         'drum': AudienceDrumGame,
         'music': AudienceMusicGame,
-        'flash': AudienceFlashGame
+        'flash': AudienceFlashGame,
+        'chomp': AudienceChompGame
     };
     return gameMap[gameName];
 }
@@ -534,6 +550,110 @@ class AudienceFlashGame extends Game {
 
     async teardown() {
         document.getElementById('audience-display').style.transition = '';
+        await super.teardown();
+    }
+}
+
+class AudienceChompGame extends Game {
+    constructor(role, config) {
+        super(role, config);
+        this.orientationUpdateInterval = null;
+        this.lastOrientation = { beta: 0, gamma: 0 };
+    }
+
+    async init() {
+        await super.init();
+        const display = document.getElementById('audience-display');
+        const teamColor = TEAM_COLORS[participantTeam];
+        const teamName = TEAM_NAMES[participantTeam];
+
+        display.style.backgroundColor = teamColor;
+        display.innerHTML = `
+            <h1 style="font-size: 3rem;">🟡</h1>
+            <p style="font-size: 2rem; font-weight: bold;">Team ${teamName}</p>
+            <p style="font-size: 1.2rem; margin-top: 2rem;">Tilt your phone to steer!</p>
+            <p id="chomp-debug" style="font-size: 0.9rem; margin-top: 1rem; opacity: 0.7;"></p>
+        `;
+
+        // Request device orientation permission (iOS 13+)
+        if (typeof DeviceOrientationEvent !== 'undefined' &&
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+            try {
+                const permission = await DeviceOrientationEvent.requestPermission();
+                if (permission === 'granted') {
+                    this.startOrientationTracking();
+                } else {
+                    display.innerHTML += '<p style="color: #fff;">Permission denied</p>';
+                }
+            } catch (err) {
+                console.error('Orientation permission error:', err);
+            }
+        } else {
+            // Non-iOS or older iOS
+            this.startOrientationTracking();
+        }
+    }
+
+    startOrientationTracking() {
+        // Send orientation data to Perform 10 times per second
+        this.orientationUpdateInterval = setInterval(() => {
+            if (!this.active) return;
+
+            const { beta, gamma } = this.lastOrientation;
+
+            // Convert orientation to direction vector
+            // beta: front-to-back tilt (-180 to 180), negative when tilted forward
+            // gamma: left-to-right tilt (-90 to 90), positive when tilted right
+
+            // Normalize to -1 to 1 range
+            const dx = Math.max(-1, Math.min(1, gamma / 45)); // 45 degrees = full tilt
+            const dy = Math.max(-1, Math.min(1, -beta / 45)); // Negative beta = forward = positive dy
+
+            // Only send if magnitude is significant
+            const magnitude = Math.sqrt(dx * dx + dy * dy);
+            if (magnitude > 0.1) {
+                this.sendDirection(dx, dy);
+            }
+
+            // Update debug display
+            const debugEl = document.getElementById('chomp-debug');
+            if (debugEl) {
+                debugEl.textContent = `dx: ${dx.toFixed(2)}, dy: ${dy.toFixed(2)}`;
+            }
+        }, 100); // 10 times per second
+
+        // Listen for device orientation changes
+        window.addEventListener('deviceorientation', this.handleOrientation.bind(this));
+        console.log('✓ Chomp orientation tracking started');
+    }
+
+    handleOrientation(event) {
+        this.lastOrientation = {
+            beta: event.beta || 0,  // front-back tilt
+            gamma: event.gamma || 0 // left-right tilt
+        };
+    }
+
+    sendDirection(dx, dy) {
+        if (!db || !roomId) return;
+
+        const directionRef = db.ref(`rooms/${roomId}/toPerform`).push();
+        directionRef.set({
+            type: 'direction',
+            clientId: participantId,
+            team: participantTeam,
+            dx: dx,
+            dy: dy,
+            timestamp: getSyncedTime()
+        });
+    }
+
+    async teardown() {
+        if (this.orientationUpdateInterval) {
+            clearInterval(this.orientationUpdateInterval);
+        }
+        window.removeEventListener('deviceorientation', this.handleOrientation);
+        document.getElementById('audience-display').style.backgroundColor = '';
         await super.teardown();
     }
 }

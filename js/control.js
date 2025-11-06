@@ -67,7 +67,8 @@ function setupGameButtons() {
         { id: 'clap', label: 'Clap', icon: '👏' },
         { id: 'drum', label: 'Drum', icon: '🥁' },
         { id: 'music', label: 'Music', icon: '🎵' },
-        { id: 'flash', label: 'Flash', icon: '⚡' }
+        { id: 'flash', label: 'Flash', icon: '⚡' },
+        { id: 'chomp', label: 'Chomp', icon: '🟡' }
     ];
 
     const buttonContainer = document.getElementById('control-game-buttons');

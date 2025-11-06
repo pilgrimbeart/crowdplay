@@ -158,7 +158,8 @@ function getGameClass(gameName) {
         'clap': PerformClapGame,
         'drum': PerformDrumGame,
         'music': PerformMusicGame,
-        'flash': PerformFlashGame
+        'flash': PerformFlashGame,
+        'chomp': PerformChompGame
     };
     return gameMap[gameName];
 }
@@ -258,6 +259,18 @@ function listenForLatencyReports() {
         } else if (message.type === 'drumHit') {
             // Play drum sound when audience member hits drum
             playDrumSound();
+        } else if (message.type === 'direction') {
+            // Update team direction data for Chomp game
+            if (currentGame && currentGame.teams) {
+                const team = currentGame.teams[message.team];
+                if (team) {
+                    team.clients.set(message.clientId, {
+                        dx: message.dx,
+                        dy: message.dy,
+                        timestamp: message.timestamp
+                    });
+                }
+            }
         }
 
         snapshot.ref.remove();
@@ -506,6 +519,166 @@ class PerformFlashGame extends Game {
     }
 
     async teardown() {
+        await super.teardown();
+    }
+}
+
+class PerformChompGame extends Game {
+    constructor(role, config) {
+        super(role, config);
+        this.canvas = null;
+        this.ctx = null;
+        this.animationFrame = null;
+        this.teams = [];
+        this.teamColors = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#A8E6CF', '#FF8B94'];
+        this.teamNames = ['Red', 'Cyan', 'Yellow', 'Green', 'Pink'];
+    }
+
+    async init() {
+        await super.init();
+
+        const display = document.getElementById('perform-display');
+        display.innerHTML = `
+            <canvas id="chomp-canvas" width="1200" height="800"></canvas>
+        `;
+
+        this.canvas = document.getElementById('chomp-canvas');
+        this.ctx = this.canvas.getContext('2d');
+
+        // Initialize teams with Pacman entities
+        for (let i = 0; i < 5; i++) {
+            this.teams.push({
+                id: i,
+                color: this.teamColors[i],
+                name: this.teamNames[i],
+                x: 200 + (i * 200), // Space them out horizontally
+                y: 400,
+                vx: 0,
+                vy: 0,
+                angle: 0, // Direction Pacman is facing
+                mouthAngle: 0, // For animating mouth
+                clients: new Map() // clientId -> {dx, dy, timestamp}
+            });
+        }
+
+        // Start game loop
+        this.gameLoop();
+
+        // Broadcast game state
+        broadcastGameState('chomp', {});
+
+        console.log('✓ Chomp game started');
+    }
+
+    gameLoop() {
+        if (!this.active) return;
+
+        // Clear canvas
+        this.ctx.fillStyle = '#1a1a2e';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        const now = getSyncedTime();
+
+        // Update and render each team
+        this.teams.forEach(team => {
+            // Clean up old client data (older than 500ms)
+            for (const [clientId, data] of team.clients.entries()) {
+                if (now - data.timestamp > 500) {
+                    team.clients.delete(clientId);
+                }
+            }
+
+            // Average direction vectors from all active clients
+            let sumDx = 0, sumDy = 0;
+            team.clients.forEach(data => {
+                sumDx += data.dx;
+                sumDy += data.dy;
+            });
+
+            const count = team.clients.size;
+            if (count > 0) {
+                team.vx = sumDx / count;
+                team.vy = sumDy / count;
+
+                // Update angle based on direction
+                if (team.vx !== 0 || team.vy !== 0) {
+                    team.angle = Math.atan2(team.vy, team.vx);
+                }
+            } else {
+                // No active clients, slow down
+                team.vx *= 0.95;
+                team.vy *= 0.95;
+            }
+
+            // Update position
+            const speed = 3;
+            team.x += team.vx * speed;
+            team.y += team.vy * speed;
+
+            // Wrap around edges
+            if (team.x < 0) team.x = this.canvas.width;
+            if (team.x > this.canvas.width) team.x = 0;
+            if (team.y < 0) team.y = this.canvas.height;
+            if (team.y > this.canvas.height) team.y = 0;
+
+            // Animate mouth
+            team.mouthAngle = (Math.sin(Date.now() / 100) * 0.3) + 0.3; // Oscillate 0 to 0.6
+
+            // Render individual direction vectors (faint lines)
+            this.ctx.strokeStyle = team.color;
+            this.ctx.globalAlpha = 0.2;
+            team.clients.forEach(data => {
+                this.ctx.beginPath();
+                this.ctx.moveTo(team.x, team.y);
+                this.ctx.lineTo(team.x + data.dx * 50, team.y + data.dy * 50);
+                this.ctx.lineWidth = 1;
+                this.ctx.stroke();
+            });
+            this.ctx.globalAlpha = 1.0;
+
+            // Render Pacman
+            this.drawPacman(team);
+
+            // Render team label
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = '16px Arial';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText(`${team.name} (${count})`, team.x, team.y + 50);
+        });
+
+        // Continue loop
+        this.animationFrame = requestAnimationFrame(() => this.gameLoop());
+    }
+
+    drawPacman(team) {
+        const ctx = this.ctx;
+        const radius = 30;
+
+        ctx.save();
+        ctx.translate(team.x, team.y);
+        ctx.rotate(team.angle);
+
+        // Draw Pacman body
+        ctx.fillStyle = team.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, team.mouthAngle, Math.PI * 2 - team.mouthAngle);
+        ctx.lineTo(0, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw eye
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(radius / 3, -radius / 3, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    async teardown() {
+        if (this.animationFrame) {
+            cancelAnimationFrame(this.animationFrame);
+        }
         await super.teardown();
     }
 }
