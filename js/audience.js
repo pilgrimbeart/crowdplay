@@ -278,6 +278,44 @@ function startDiagnosticsDisplay() {
 // AUDIO PLAYBACK
 // ============================================================================
 
+function showLateStartWarning(lateByMs) {
+    // Create warning overlay
+    const warning = document.createElement('div');
+    warning.id = 'late-start-warning';
+    warning.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: rgba(255, 69, 0, 0.95);
+        color: white;
+        padding: 15px 25px;
+        border-radius: 10px;
+        font-size: 1.2rem;
+        font-weight: bold;
+        z-index: 10000;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        animation: slideDown 0.3s ease-out;
+    `;
+    warning.textContent = `⚠️ Late Start: ${lateByMs}ms - Insufficient buffer!`;
+
+    // Remove any existing warning
+    const existing = document.getElementById('late-start-warning');
+    if (existing) {
+        existing.remove();
+    }
+
+    document.body.appendChild(warning);
+
+    // Remove after 4 seconds
+    setTimeout(() => {
+        if (warning.parentNode) {
+            warning.style.animation = 'slideUp 0.3s ease-in';
+            setTimeout(() => warning.remove(), 300);
+        }
+    }, 4000);
+}
+
 function playAudioSynced(file, startTime, loop) {
     if (!isSynced) {
         console.warn('Cannot play audio: not yet time-synced');
@@ -312,6 +350,12 @@ function playAudioSynced(file, startTime, loop) {
 
     if (timeUntilStart < 0) {
         const lateBy = Math.abs(timeUntilStart);
+        const lateByMs = Math.round(lateBy * 1000);
+
+        // Show visible warning - Perform didn't add enough buffer
+        showLateStartWarning(lateByMs);
+        console.warn(`Start time in the past by ${lateByMs}ms - insufficient buffer`);
+
         if (loop) {
             offset = lateBy % audioBuffer.duration;
         } else {
@@ -455,8 +499,8 @@ class AudienceClapGame extends Game {
         document.getElementById('audience-display').style.backgroundColor = '#ff6b6b';
 
         // Play clap loop synchronized with Perform
-        // Use startTime from Perform's config, or fallback to current time + 500ms
-        const startTime = this.config.startTime || (getSyncedTime() + 500);
+        // Use startTime from Perform's config, or fallback to current time + 1000ms
+        const startTime = this.config.startTime || (getSyncedTime() + 1000);
         console.log('Clap game starting at:', startTime, 'current time:', getSyncedTime(), 'late by:', getSyncedTime() - startTime);
         playAudioSynced('samples/clap.mp3', startTime, true);
     }
@@ -496,8 +540,8 @@ class AudienceMusicGame extends Game {
         document.getElementById('audience-display').style.backgroundColor = '#9b59b6';
 
         // Play music synchronized with Perform
-        // Use startTime from Perform's config, or fallback to current time + 500ms
-        const startTime = this.config.startTime || (getSyncedTime() + 500);
+        // Use startTime from Perform's config, or fallback to current time + 1000ms
+        const startTime = this.config.startTime || (getSyncedTime() + 1000);
         console.log('Music game starting at:', startTime, 'current time:', getSyncedTime(), 'late by:', getSyncedTime() - startTime);
         playAudioSynced('samples/sandstorm.mp3', startTime, false);
     }
@@ -526,6 +570,14 @@ class AudienceFlashGame extends Game {
 
     scheduleFlashes(startTime, interval) {
         const display = document.getElementById('audience-display');
+
+        // Check if initial startTime is in the past
+        const now = getSyncedTime();
+        if (startTime < now) {
+            const lateByMs = Math.round(now - startTime);
+            showLateStartWarning(lateByMs);
+            console.warn(`Flash start time in the past by ${lateByMs}ms - insufficient buffer`);
+        }
 
         // Schedule repeating flashes
         const flash = () => {
