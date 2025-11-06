@@ -468,11 +468,12 @@ function listenForHeartbeats() {
             // Remove the heartbeat message to keep database clean
             snapshot.ref.remove();
         } else if (message.type === 'drumHit') {
-            // Participant detected a drum hit - broadcast to all clients
+            // Participant detected a drum hit
+            // Don't broadcast - participant hears it locally
             console.log(`Drum hit from ${message.name}, magnitude: ${message.magnitude}`);
 
-            // Broadcast drum hit command to projector and all participants
-            sendCommand({ type: 'drumHit' });
+            // Optional: Play drum sound on conductor for monitoring
+            // playDrumSound();
 
             // Remove the drum hit message to keep database clean
             snapshot.ref.remove();
@@ -577,9 +578,6 @@ function handleProjectorCommand(command) {
     } else if (command.type === 'color') {
         display.style.backgroundColor = command.value;
         console.log('Changed projector color to:', command.value);
-    } else if (command.type === 'drumHit') {
-        // Play drum sound when participant hits drum
-        playDrumSound();
     } else if (command.type === 'flash') {
         startFlashing(command.startTime, command.interval);
     }
@@ -907,7 +905,13 @@ function addMotionListener() {
             const now = Date.now();
             if (now - lastDrumHitTime >= DRUM_THROTTLE_MS) {
                 lastDrumHitTime = now;
+
+                // Play drum sound locally for immediate feedback
+                playDrumSound();
+
+                // Send to conductor for monitoring/stats
                 sendDrumHit(magnitude);
+
                 console.log(`Drum hit detected! Magnitude: ${magnitude.toFixed(1)}`);
             }
         }
