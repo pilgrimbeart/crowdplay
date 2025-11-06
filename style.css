@@ -411,3 +411,34 @@ kbd {
     font-size: 1.1rem;
     font-weight: 600;
 }
+
+/* ========================================================================== */
+/* AUDIENCE DIAGNOSTICS */
+/* ========================================================================== */
+
+.audience-diagnostics {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.8);
+    color: #0f0;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    padding: 10px;
+    border-radius: 8px;
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 5px 10px;
+    z-index: 1000;
+    min-width: 200px;
+}
+
+.diag-label {
+    text-align: right;
+    opacity: 0.7;
+}
+
+.diag-value {
+    font-weight: bold;
+    text-align: left;
+}

@@ -89,6 +89,9 @@ async function handleNameSubmit(name) {
     // Start latency reporting
     startLatencyReporting();
 
+    // Start diagnostics display
+    startDiagnosticsDisplay();
+
     console.log('✓ Audience mode ready');
 }
 
@@ -222,6 +225,31 @@ function startLatencyReporting() {
             timestamp: getSyncedTime()
         });
     });
+}
+
+// ============================================================================
+// DIAGNOSTICS DISPLAY
+// ============================================================================
+
+function startDiagnosticsDisplay() {
+    const updateDiagnostics = () => {
+        const localTime = Date.now();
+        const syncedTime = getSyncedTime();
+
+        // Display modulo 100 for easy comparison
+        const localMod100 = Math.floor(localTime % 100);
+        const syncedMod100 = Math.floor(syncedTime % 100);
+
+        document.getElementById('diag-local').textContent = localMod100.toString().padStart(2, '0');
+        document.getElementById('diag-offset').textContent = Math.round(serverTimeOffset) + ' ms';
+        document.getElementById('diag-synced').textContent = syncedMod100.toString().padStart(2, '0');
+    };
+
+    // Update every 50ms for smooth display
+    setInterval(updateDiagnostics, 50);
+
+    // Update immediately
+    updateDiagnostics();
 }
 
 // ============================================================================
