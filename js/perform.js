@@ -394,15 +394,27 @@ function playDrumSound() {
 class PerformQRGame extends Game {
     async init() {
         await super.init();
-        document.getElementById('perform-display').innerHTML = `
-            <h1 style="font-size: 4rem; margin-bottom: 2rem;">Join CrowdPlay!</h1>
-            <p style="font-size: 2rem;">Scan the QR code</p>
+        const display = document.getElementById('perform-display');
+        display.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+        display.innerHTML = `
+            <div style="text-align: center;">
+                <h1 style="font-size: 4rem; margin-bottom: 2rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">Join CrowdPlay!</h1>
+                <p style="font-size: 2rem; margin-bottom: 3rem; opacity: 0.9;">Scan the QR code</p>
+                <div id="qr-code-display"></div>
+            </div>
         `;
-        document.getElementById('perform-qr-code').style.display = 'block';
+
+        // Generate QR code in the display area
+        const roomURL = window.location.origin + window.location.pathname + '?room=' + roomId;
+        new QRCode(document.getElementById('qr-code-display'), {
+            text: roomURL,
+            width: 300,
+            height: 300
+        });
     }
 
     async teardown() {
-        document.getElementById('perform-qr-code').style.display = 'none';
+        document.getElementById('perform-display').style.background = '';
         await super.teardown();
     }
 }
