@@ -200,6 +200,10 @@ let currentSource = null;  // Currently playing AudioBufferSourceNode
 let audioFilesLoaded = false;  // Whether all audio files have been preloaded
 let audioLoadProgress = { loaded: 0, total: 0 };  // Track loading progress
 
+// Audio context time synchronization anchor point
+let audioContextCreationSyncedTime = 0;  // getSyncedTime() when audioContext was created
+let audioContextCreationTime = 0;  // audioContext.currentTime when created (usually ~0)
+
 // Flash state (for time sync testing)
 let flashIntervalId = null;  // Interval for repeating flashes
 let flashStartTime = null;  // Synced time when flashes should start
@@ -606,7 +610,13 @@ async function preloadAudioFiles() {
         // Create AudioContext (may need user interaction first)
         if (!audioContext) {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            console.log('✓ AudioContext created');
+
+            // Record the relationship between synced time and audio context time
+            audioContextCreationSyncedTime = getSyncedTime();
+            audioContextCreationTime = audioContext.currentTime;
+
+            console.log('✓ AudioContext created at synced time:', audioContextCreationSyncedTime,
+                       'audio time:', audioContextCreationTime.toFixed(3));
         }
 
         console.log('Fetching audio manifest...');
@@ -947,12 +957,17 @@ function playAudioSynced(file, startTime, loop) {
         return;
     }
 
-    // Calculate where we should be in the audio based on synced time
-    const now = getSyncedTime();
-    const elapsed = (now - startTime) / 1000; // seconds since scheduled start
+    // Convert startTime (in synced time) to audioContext time using our anchor point
+    // This ensures all devices schedule at the same absolute audio context time
+    // regardless of when they received the message
+    const targetAudioTime = audioContextCreationTime + (startTime - audioContextCreationSyncedTime) / 1000;
+    const currentAudioTime = audioContext.currentTime;
+    const timeUntilStart = targetAudioTime - currentAudioTime;
 
-    if (elapsed < -5) {
-        console.warn(`Audio scheduled too far in future (${Math.round(elapsed)}s), skipping`);
+    console.log(`Target audio time: ${targetAudioTime.toFixed(3)}s, current: ${currentAudioTime.toFixed(3)}s, wait: ${timeUntilStart.toFixed(3)}s`);
+
+    if (timeUntilStart < -5) {
+        console.warn(`Audio scheduled too far in past (${timeUntilStart.toFixed(1)}s ago), skipping`);
         return;
     }
 
@@ -962,34 +977,31 @@ function playAudioSynced(file, startTime, loop) {
     source.loop = loop;
     source.connect(audioContext.destination);
 
-    // Calculate offset and when to start in AudioContext time
     let offset = 0;
-    let whenToStart = audioContext.currentTime;
+    let whenToStart = currentAudioTime;
 
-    if (elapsed > 0) {
-        // We're late - calculate position in the loop
+    if (timeUntilStart < 0) {
+        // We're late - calculate position in the audio
+        const lateBy = Math.abs(timeUntilStart);
         if (loop) {
-            offset = elapsed % audioBuffer.duration;
+            offset = lateBy % audioBuffer.duration;
         } else {
-            offset = Math.min(elapsed, audioBuffer.duration);
+            offset = Math.min(lateBy, audioBuffer.duration);
             if (offset >= audioBuffer.duration) {
-                console.warn('Audio already finished, not playing');
+                console.warn(`Audio already finished (${lateBy.toFixed(1)}s late), not playing`);
                 return;
             }
         }
-        // Start immediately
-        whenToStart = audioContext.currentTime;
-        console.log(`Late by ${elapsed.toFixed(3)}s - starting at offset ${offset.toFixed(3)}s`);
+        whenToStart = currentAudioTime;
+        console.log(`Late by ${lateBy.toFixed(3)}s - starting immediately at offset ${offset.toFixed(3)}s`);
     } else {
-        // We're early - schedule precisely in the future
-        // Use AudioContext time which has millisecond precision
-        whenToStart = audioContext.currentTime + Math.abs(elapsed);
+        // We're early - schedule precisely at the target time
+        whenToStart = targetAudioTime;
         offset = 0;
-        console.log(`Early by ${Math.abs(elapsed).toFixed(3)}s - scheduling at audioContext time ${whenToStart.toFixed(3)}s`);
+        console.log(`On time - scheduling at ${whenToStart.toFixed(3)}s (${timeUntilStart.toFixed(3)}s from now)`);
     }
 
     // Start at the calculated time with the calculated offset
-    // This is PRECISE - Web Audio API guarantees sample-accurate timing
     source.start(whenToStart, offset);
     currentSource = source;
 
