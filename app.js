@@ -95,10 +95,8 @@ function monitorServerTime() {
 
     const offsetRef = db.ref('.info/serverTimeOffset');
 
-    // Initial read
-    offsetRef.on('value', (snapshot) => {
-        const firebaseOffset = snapshot.val(); // Firebase's estimate of our clock offset (ms)
-
+    // Function to process a time offset sample
+    const processSample = (firebaseOffset) => {
         if (syncSampleCount === 0) {
             // First sample: just set it directly
             serverTimeOffset = firebaseOffset;
@@ -107,7 +105,7 @@ function monitorServerTime() {
             // Subsequent samples: apply first-order filter
             const oldOffset = serverTimeOffset;
             serverTimeOffset = SYNC_FILTER_K * serverTimeOffset + (1 - SYNC_FILTER_K) * firebaseOffset;
-            console.log(`Time sync: ${firebaseOffset}ms (filtered: ${Math.round(serverTimeOffset)}ms, prev: ${Math.round(oldOffset)}ms)`);
+            console.log(`Time sync sample ${syncSampleCount + 1}: ${firebaseOffset}ms (filtered: ${Math.round(serverTimeOffset)}ms, prev: ${Math.round(oldOffset)}ms)`);
         }
 
         syncSampleCount++;
@@ -115,15 +113,33 @@ function monitorServerTime() {
         // Check if we've achieved sync
         if (syncSampleCount >= SYNC_SAMPLES_NEEDED && !isSynced) {
             isSynced = true;
-            console.log('✓ Time synchronized! Offset:', Math.round(serverTimeOffset), 'ms');
+            console.log('✓ Time synchronized! Final offset:', Math.round(serverTimeOffset), 'ms');
         }
 
         updateSyncStatus();
-    });
+    };
 
-    // Periodically re-check offset to catch clock drift (every 10 seconds)
-    setInterval(() => {
+    // Take initial samples rapidly to converge quickly
+    let initialSamplesTaken = 0;
+    const takeSample = () => {
         offsetRef.once('value', (snapshot) => {
+            processSample(snapshot.val());
+            initialSamplesTaken++;
+
+            // Take more samples if we haven't reached the target
+            if (initialSamplesTaken < SYNC_SAMPLES_NEEDED) {
+                setTimeout(takeSample, 200); // Wait 200ms between samples
+            }
+        });
+    };
+
+    // Start taking samples
+    takeSample();
+
+    // Also listen for changes (in case Firebase detects drift)
+    offsetRef.on('value', (snapshot) => {
+        // Only process if we're already synced (this catches drift updates)
+        if (isSynced) {
             const firebaseOffset = snapshot.val();
             const oldOffset = serverTimeOffset;
             serverTimeOffset = SYNC_FILTER_K * serverTimeOffset + (1 - SYNC_FILTER_K) * firebaseOffset;
@@ -132,8 +148,8 @@ function monitorServerTime() {
             if (Math.abs(firebaseOffset - oldOffset) > 5) {
                 console.log(`Time drift detected: ${firebaseOffset}ms (filtered: ${Math.round(serverTimeOffset)}ms)`);
             }
-        });
-    }, 10000);
+        }
+    });
 }
 
 // Get current synchronized time (in milliseconds)
@@ -144,7 +160,7 @@ function getSyncedTime() {
 // Update status indicator based on connection and sync state
 function updateSyncStatus() {
     if (!isSynced) {
-        setStatus('warning', `Syncing... (${syncSampleCount}/${SYNC_SAMPLES_NEEDED})`);
+        setStatus('warning', `Syncing time... (${syncSampleCount}/${SYNC_SAMPLES_NEEDED})`);
     } else if (mode === 'participant' && !audioFilesLoaded) {
         setStatus('warning', `Loading audio... (${audioLoadProgress.loaded}/${audioLoadProgress.total})`);
     } else {
@@ -164,8 +180,8 @@ let db = null;
 let serverTimeOffset = 0;        // Our offset from Firebase server time (ms)
 let isSynced = false;            // Whether we have achieved sync
 let syncSampleCount = 0;         // Number of sync samples received
-const SYNC_SAMPLES_NEEDED = 1;  // Firebase offset is already accurate, only need 1 sample
-const SYNC_FILTER_K = 0.75;      // Filter constant: higher = slower to adapt
+const SYNC_SAMPLES_NEEDED = 5;   // Take 5 samples for better accuracy
+const SYNC_FILTER_K = 0.6;       // Filter constant: 0.6 = reasonably fast convergence
 
 // Latency tracking (Conductor only)
 let clientLatencies = new Map();  // clientId -> {latency, lastSeen}
