@@ -29,6 +29,7 @@ let currentAudioSource = null;
 let lastDrumHitTime = 0;
 const DRUM_THROTTLE_MS = 500;
 const DRUM_THRESHOLD = 20;
+let drumMotionHandler = null; // Store handler reference for cleanup
 
 // ============================================================================
 // INITIALIZATION
@@ -377,7 +378,8 @@ function startDrumDetection() {
 }
 
 function addMotionListener() {
-    window.addEventListener('devicemotion', (event) => {
+    // Create named handler so it can be removed later
+    drumMotionHandler = (event) => {
         const acc = event.accelerationIncludingGravity;
         if (!acc || acc.x === null || acc.z === null) return;
 
@@ -386,31 +388,31 @@ function addMotionListener() {
         // At rest: Z ≈ 9.8 (gravity)
         // Drumming DOWN: Z decreases significantly (acceleration toward rear/ground)
 
-        // We want to detect when Z drops below a threshold, indicating downward stroke
-        // DRUM_THRESHOLD is 20, so we check if Z-axis acceleration is significantly
-        // below the resting value (9.8), indicating downward motion
-
         const zAccel = acc.z;
-        const restingZ = 9.8; // Approximate gravity when phone is at rest, screen up
-        const zDelta = restingZ - zAccel; // Positive when accelerating downward
+        const restingZ = 9.8;
+        const zDelta = restingZ - zAccel;
 
-        // Trigger drum when phone accelerates downward with sufficient force
-        // zDelta > DRUM_THRESHOLD means strong downward acceleration
         if (zDelta > DRUM_THRESHOLD) {
             const now = Date.now();
             if (now - lastDrumHitTime >= DRUM_THROTTLE_MS) {
                 lastDrumHitTime = now;
                 playDrumSound();
-
-                // Send drum hit to Perform
                 sendDrumHitToPerform();
-
                 console.log(`Drum hit! Z: ${zAccel.toFixed(1)}, delta: ${zDelta.toFixed(1)}`);
             }
         }
-    });
+    };
 
+    window.addEventListener('devicemotion', drumMotionHandler);
     console.log('✓ Drum detection started (downward motion only)');
+}
+
+function stopDrumDetection() {
+    if (drumMotionHandler) {
+        window.removeEventListener('devicemotion', drumMotionHandler);
+        drumMotionHandler = null;
+        console.log('✓ Drum detection stopped');
+    }
 }
 
 function sendDrumHitToPerform() {
@@ -479,7 +481,8 @@ class AudienceDrumGame extends Game {
     }
 
     async teardown() {
-        // Motion listener persists, but that's okay
+        // Stop motion listener
+        stopDrumDetection();
         await super.teardown();
     }
 }
