@@ -358,15 +358,24 @@ function startDrumDetection() {
 function addMotionListener() {
     window.addEventListener('devicemotion', (event) => {
         const acc = event.accelerationIncludingGravity;
-        if (!acc || acc.x === null) return;
+        if (!acc || acc.x === null || acc.z === null) return;
 
-        const magnitude = Math.sqrt(
-            acc.x * acc.x +
-            acc.y * acc.y +
-            acc.z * acc.z
-        );
+        // Detect downward drum motion:
+        // When phone is held screen-up, Z axis points upward (away from screen)
+        // At rest: Z ≈ 9.8 (gravity)
+        // Drumming DOWN: Z decreases significantly (acceleration toward rear/ground)
 
-        if (magnitude > DRUM_THRESHOLD) {
+        // We want to detect when Z drops below a threshold, indicating downward stroke
+        // DRUM_THRESHOLD is 20, so we check if Z-axis acceleration is significantly
+        // below the resting value (9.8), indicating downward motion
+
+        const zAccel = acc.z;
+        const restingZ = 9.8; // Approximate gravity when phone is at rest, screen up
+        const zDelta = restingZ - zAccel; // Positive when accelerating downward
+
+        // Trigger drum when phone accelerates downward with sufficient force
+        // zDelta > DRUM_THRESHOLD means strong downward acceleration
+        if (zDelta > DRUM_THRESHOLD) {
             const now = Date.now();
             if (now - lastDrumHitTime >= DRUM_THROTTLE_MS) {
                 lastDrumHitTime = now;
@@ -375,12 +384,12 @@ function addMotionListener() {
                 // Send drum hit to Perform
                 sendDrumHitToPerform();
 
-                console.log(`Drum hit! Magnitude: ${magnitude.toFixed(1)}`);
+                console.log(`Drum hit! Z: ${zAccel.toFixed(1)}, delta: ${zDelta.toFixed(1)}`);
             }
         }
     });
 
-    console.log('✓ Drum detection started');
+    console.log('✓ Drum detection started (downward motion only)');
 }
 
 function sendDrumHitToPerform() {
