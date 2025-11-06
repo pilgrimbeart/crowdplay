@@ -79,6 +79,7 @@
                 />
                 <button type="submit">Join</button>
             </form>
+            <div id="mobile-error-log" style="display: none; margin-top: 2rem; padding: 1rem; background: rgba(255,0,0,0.1); border: 1px solid #ff0000; border-radius: 8px; text-align: left; font-family: monospace; font-size: 0.8rem; color: #ff0000; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;"></div>
         </div>
     </div>
 
@@ -123,6 +124,27 @@
 
     <!-- Role-specific routing and loading -->
     <script>
+        // Mobile error logging
+        window.addEventListener('error', (e) => {
+            const errorLog = document.getElementById('mobile-error-log');
+            if (errorLog) {
+                errorLog.style.display = 'block';
+                const errorMsg = `ERROR: ${e.message}\nat ${e.filename}:${e.lineno}:${e.colno}\n`;
+                errorLog.textContent += errorMsg + '\n';
+                console.error('Caught error:', e);
+            }
+        });
+
+        window.addEventListener('unhandledrejection', (e) => {
+            const errorLog = document.getElementById('mobile-error-log');
+            if (errorLog) {
+                errorLog.style.display = 'block';
+                const errorMsg = `PROMISE REJECTION: ${e.reason}\n`;
+                errorLog.textContent += errorMsg + '\n';
+                console.error('Unhandled rejection:', e);
+            }
+        });
+
         document.addEventListener('DOMContentLoaded', () => {
             const params = new URLSearchParams(window.location.search);
             const hasPerform = params.has('perform');
