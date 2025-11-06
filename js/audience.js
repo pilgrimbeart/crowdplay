@@ -24,7 +24,8 @@ const DRUM_THRESHOLD = 20;
 // INITIALIZATION
 // ============================================================================
 
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize immediately (script is loaded after DOM is ready)
+(function initAudience() {
     console.log('Audience mode initializing...');
 
     // Get room ID from URL
@@ -57,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await handleNameSubmit(name);
         }
     });
-});
+})();
 
 async function handleNameSubmit(name) {
     participantName = name;

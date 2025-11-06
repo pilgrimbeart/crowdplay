@@ -5,7 +5,8 @@
 // INITIALIZATION
 // ============================================================================
 
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize immediately (script is loaded after DOM is ready)
+(function initControl() {
     console.log('Control mode initializing...');
 
     showView('control-view');
@@ -34,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupGameButtons();
 
     console.log('✓ Control mode ready');
-});
+})();
 
 // ============================================================================
 // DIAGNOSTICS DISPLAY

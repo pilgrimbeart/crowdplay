@@ -19,7 +19,8 @@ const MAX_LATENCY_MS = 5000;
 // INITIALIZATION
 // ============================================================================
 
-document.addEventListener('DOMContentLoaded', async () => {
+// Initialize immediately (script is loaded after DOM is ready)
+(async function initPerform() {
     console.log('Perform mode initializing...');
 
     showView('perform-view');
@@ -36,9 +37,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     document.getElementById('perform-room-id').textContent = roomId;
+    console.log('Room ID set to:', roomId);
 
     // Generate QR code for audience
     const roomURL = window.location.origin + window.location.pathname + '?room=' + roomId;
+    console.log('Generating QR code for:', roomURL);
+
     new QRCode(document.getElementById('perform-qr-code'), {
         text: roomURL,
         width: 256,
@@ -67,10 +71,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     startDiagnosticsBroadcast();
 
     // Start with QR game
+    console.log('Starting QR game...');
     await changeGame('qr');
 
     console.log('✓ Perform mode ready');
-});
+})();
 
 function generateRoomID() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
