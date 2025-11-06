@@ -566,11 +566,13 @@ class AudienceChompGame extends Game {
     constructor(role, config) {
         super(role, config);
         this.orientationUpdateInterval = null;
+        this.transmitInterval = null;
         this.lastOrientation = { beta: 0, gamma: 0 };
         this.canvas = null;
         this.ctx = null;
         this.currentDx = 0;
         this.currentDy = 0;
+        this.animationFrame = null;
     }
 
     async init() {
@@ -614,8 +616,16 @@ class AudienceChompGame extends Game {
     }
 
     startOrientationTracking() {
-        // Send orientation data to Perform 2 times per second
-        this.orientationUpdateInterval = setInterval(() => {
+        // Start animation loop for smooth visual feedback
+        const animate = () => {
+            if (!this.active) return;
+            this.drawPacman();
+            this.animationFrame = requestAnimationFrame(animate);
+        };
+        animate();
+
+        // Transmit orientation data to Perform 2 times per second
+        this.transmitInterval = setInterval(() => {
             if (!this.active) return;
 
             const { beta, gamma } = this.lastOrientation;
@@ -627,11 +637,6 @@ class AudienceChompGame extends Game {
             // Normalize to -1 to 1 range
             const dx = Math.max(-1, Math.min(1, gamma / 45)); // 45 degrees = full tilt
             const dy = Math.max(-1, Math.min(1, beta / 45)); // Positive beta (tilt up) = positive dy (move up)
-
-            // Update visual indicator
-            this.currentDx = dx;
-            this.currentDy = dy;
-            this.drawPacman();
 
             // Only send if magnitude is significant
             const magnitude = Math.sqrt(dx * dx + dy * dy);
@@ -656,6 +661,11 @@ class AudienceChompGame extends Game {
             beta: event.beta || 0,  // front-back tilt
             gamma: event.gamma || 0 // left-right tilt
         };
+
+        // Update direction immediately for smooth animation
+        const { beta, gamma } = this.lastOrientation;
+        this.currentDx = Math.max(-1, Math.min(1, gamma / 45));
+        this.currentDy = Math.max(-1, Math.min(1, beta / 45));
     }
 
     sendDirection(dx, dy) {
@@ -729,8 +739,11 @@ class AudienceChompGame extends Game {
     }
 
     async teardown() {
-        if (this.orientationUpdateInterval) {
-            clearInterval(this.orientationUpdateInterval);
+        if (this.transmitInterval) {
+            clearInterval(this.transmitInterval);
+        }
+        if (this.animationFrame) {
+            cancelAnimationFrame(this.animationFrame);
         }
         window.removeEventListener('deviceorientation', this.handleOrientation);
         document.getElementById('audience-display').style.backgroundColor = '';

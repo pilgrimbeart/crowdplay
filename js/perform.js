@@ -414,10 +414,10 @@ class PerformQRGame extends Game {
         const display = document.getElementById('perform-display');
         display.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
         display.innerHTML = `
-            <div style="text-align: center;">
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; width: 100%;">
                 <h1 style="font-size: 4rem; margin-bottom: 2rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">Join CrowdPlay!</h1>
                 <p style="font-size: 2rem; margin-bottom: 3rem; opacity: 0.9;">Scan the QR code</p>
-                <div id="qr-code-display"></div>
+                <div id="qr-code-display" style="display: flex; justify-content: center;"></div>
             </div>
         `;
 
@@ -644,8 +644,8 @@ class PerformChompGame extends Game {
                 team.powered = false;
             }
 
-            // Update position (faster when powered)
-            const speed = team.powered ? 5 : 3;
+            // Update position (faster when powered) - reduced by 25%
+            const speed = team.powered ? 3.75 : 2.25;
             team.x += team.vx * speed;
             team.y += team.vy * speed;
 
@@ -676,26 +676,79 @@ class PerformChompGame extends Game {
 
         // Check baddie collisions with pacmans (increased from 35 to 60 for larger baddies)
         this.baddies.forEach(baddie => {
+            if (baddie.dying) return; // Skip dying baddies
+
             this.teams.forEach(team => {
+                if (team.dying) return; // Skip dying teams
+
                 const dist = this.distance(baddie.x, baddie.y, team.x, team.y);
                 if (dist < 60) {
                     if (team.powered) {
-                        // Pacman eats baddie
+                        // Pacman eats baddie - start dying animation
                         console.log(`${team.name} (powered) ate ${baddie.type} at distance ${dist.toFixed(1)}`);
-                        baddie.dead = true;
+                        baddie.dying = true;
+                        baddie.dyingStartTime = now;
                         team.score += 20;
                     } else {
-                        // Baddie eats pacman - respawn at safe random location
+                        // Baddie eats pacman - start dying animation
                         console.log(`${baddie.type} killed ${team.name} at distance ${dist.toFixed(1)}`);
-                        const safePos = this.findSafeRespawnPosition();
-                        team.x = safePos.x;
-                        team.y = safePos.y;
-                        team.vx = 0;
-                        team.vy = 0;
+                        team.dying = true;
+                        team.dyingStartTime = now;
+                        team.respawnPos = this.findSafeRespawnPosition();
                         team.score = Math.max(0, team.score - 20);
                     }
                 }
             });
+        });
+
+        // Check Pacman vs Pacman collisions (powered can eat non-powered)
+        for (let i = 0; i < this.teams.length; i++) {
+            const team1 = this.teams[i];
+            if (team1.dying) continue;
+
+            for (let j = i + 1; j < this.teams.length; j++) {
+                const team2 = this.teams[j];
+                if (team2.dying) continue;
+
+                const dist = this.distance(team1.x, team1.y, team2.x, team2.y);
+                if (dist < 60) {
+                    // If one is powered and the other isn't, the powered one eats the other
+                    if (team1.powered && !team2.powered) {
+                        console.log(`${team1.name} (powered) ate ${team2.name}`);
+                        team2.dying = true;
+                        team2.dyingStartTime = now;
+                        team2.respawnPos = this.findSafeRespawnPosition();
+                        team2.score = Math.max(0, team2.score - 20);
+                        team1.score += 30; // More points for eating a Pacman!
+                    } else if (team2.powered && !team1.powered) {
+                        console.log(`${team2.name} (powered) ate ${team1.name}`);
+                        team1.dying = true;
+                        team1.dyingStartTime = now;
+                        team1.respawnPos = this.findSafeRespawnPosition();
+                        team1.score = Math.max(0, team1.score - 20);
+                        team2.score += 30; // More points for eating a Pacman!
+                    }
+                    // If both powered or both not powered, nothing happens (just bounce off)
+                }
+            }
+        }
+
+        // Handle dying entities
+        this.baddies.forEach(baddie => {
+            if (baddie.dying && now - baddie.dyingStartTime > 1000) {
+                baddie.dead = true; // Mark for removal after animation completes
+            }
+        });
+
+        this.teams.forEach(team => {
+            if (team.dying && now - team.dyingStartTime > 1000) {
+                // Respawn after dying animation
+                team.x = team.respawnPos.x;
+                team.y = team.respawnPos.y;
+                team.vx = 0;
+                team.vy = 0;
+                team.dying = false;
+            }
         });
 
         // Remove dead baddies
@@ -713,6 +766,19 @@ class PerformChompGame extends Game {
 
         // Draw baddies
         this.baddies.forEach(baddie => {
+            // Handle dying animation (flickering with increasing off-time)
+            if (baddie.dying) {
+                const elapsed = now - baddie.dyingStartTime;
+                const progress = elapsed / 1000; // 0 to 1 over 1 second
+                const flickerFreq = 50; // Flicker every 50ms
+                const cycle = Math.floor(elapsed / flickerFreq) % 2;
+
+                // As progress increases, show less (mark-space duty cycle)
+                // At start: show 90% of time, at end: show 10% of time
+                const showProbability = 1 - progress;
+                if (cycle === 0 && Math.random() > showProbability) return;
+            }
+
             if (baddie.type === 'octopus') {
                 this.drawOctopus(baddie);
             } else {
@@ -722,20 +788,37 @@ class PerformChompGame extends Game {
 
         // Draw pacmans
         this.teams.forEach(team => {
-            // Draw direction vectors
-            const color = team.powered ? team.colorData.powered : team.colorData.normal;
-            this.ctx.strokeStyle = color;
-            this.ctx.globalAlpha = 0.2;
-            team.clients.forEach(data => {
-                this.ctx.beginPath();
-                this.ctx.moveTo(team.x, team.y);
-                this.ctx.lineTo(team.x + data.dx * 50, team.y + data.dy * 50);
-                this.ctx.lineWidth = 1;
-                this.ctx.stroke();
-            });
-            this.ctx.globalAlpha = 1.0;
+            // Handle dying animation (flickering with increasing off-time)
+            let shouldDraw = true;
+            if (team.dying) {
+                const elapsed = now - team.dyingStartTime;
+                const progress = elapsed / 1000; // 0 to 1 over 1 second
+                const flickerFreq = 50; // Flicker every 50ms
+                const cycle = Math.floor(elapsed / flickerFreq) % 2;
 
-            this.drawPacman(team);
+                // As progress increases, show less (mark-space duty cycle)
+                const showProbability = 1 - progress;
+                if (cycle === 0 && Math.random() > showProbability) {
+                    shouldDraw = false;
+                }
+            }
+
+            if (shouldDraw) {
+                // Draw direction vectors
+                const color = team.powered ? team.colorData.powered : team.colorData.normal;
+                this.ctx.strokeStyle = color;
+                this.ctx.globalAlpha = 0.2;
+                team.clients.forEach(data => {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(team.x, team.y);
+                    this.ctx.lineTo(team.x + data.dx * 50, team.y + data.dy * 50);
+                    this.ctx.lineWidth = 1;
+                    this.ctx.stroke();
+                });
+                this.ctx.globalAlpha = 1.0;
+
+                this.drawPacman(team);
+            }
 
             // Draw team label
             this.ctx.fillStyle = '#fff';
@@ -840,7 +923,7 @@ class PerformChompGame extends Game {
             const mag = Math.sqrt(dx * dx + dy * dy);
 
             if (mag > 0) {
-                const speed = 3.5; // Faster than normal pacman
+                const speed = 2.625; // Reduced by 25% from 3.5
                 const dir = nearestPowered ? -1 : 1; // Flee from powered pacmans
                 baddie.vx = (dx / mag) * speed * dir;
                 baddie.vy = (dy / mag) * speed * dir;
