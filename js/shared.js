@@ -272,6 +272,23 @@ async function unlockAudioContext() {
 }
 
 // Convert synced time to audioContext time
+// BETTER APPROACH: Don't rely on anchor point captured before sync completed
+// Instead, calculate delay from current time and add to current audio time
 function syncedTimeToAudioTime(syncedTime) {
-    return audioContextCreationTime + (syncedTime - audioContextCreationSyncedTime) / 1000;
+    if (!audioContext) {
+        console.error('AudioContext not created');
+        return 0;
+    }
+
+    // How far in the future (or past) is the target time?
+    const now = getSyncedTime();
+    const delay = syncedTime - now;
+
+    // Schedule relative to current audio time
+    const targetAudioTime = audioContext.currentTime + (delay / 1000);
+
+    console.log(`syncedTimeToAudioTime: target=${syncedTime}, now=${now}, delay=${delay}ms, ` +
+                `audioNow=${audioContext.currentTime.toFixed(3)}, audioTarget=${targetAudioTime.toFixed(3)}`);
+
+    return targetAudioTime;
 }
