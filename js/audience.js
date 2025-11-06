@@ -11,9 +11,14 @@ let participantTeam = null;
 let wakeLock = null;
 let currentGame = null;
 
-// Team colors
-const TEAM_COLORS = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#A8E6CF', '#FF8B94'];
-const TEAM_NAMES = ['Red', 'Cyan', 'Yellow', 'Green', 'Pink'];
+// Team colors - desaturated for normal, saturated for powered-up
+const TEAM_COLORS = [
+    { normal: '#D0D0D0', powered: '#FFFFFF', name: 'White' },
+    { normal: '#D4A574', powered: '#FFA500', name: 'Orange' },
+    { normal: '#C66B6B', powered: '#FF0000', name: 'Red' },
+    { normal: '#6B8EC6', powered: '#0000FF', name: 'Blue' },
+    { normal: '#8BA888', powered: '#6B8E23', name: 'Olive' }
+];
 
 // Audio state
 let audioBuffers = new Map();
@@ -564,8 +569,9 @@ class AudienceChompGame extends Game {
     async init() {
         await super.init();
         const display = document.getElementById('audience-display');
-        const teamColor = TEAM_COLORS[participantTeam];
-        const teamName = TEAM_NAMES[participantTeam];
+        const teamData = TEAM_COLORS[participantTeam];
+        const teamColor = teamData.normal;
+        const teamName = teamData.name;
 
         display.style.backgroundColor = teamColor;
         display.innerHTML = `

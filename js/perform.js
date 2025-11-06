@@ -530,8 +530,18 @@ class PerformChompGame extends Game {
         this.ctx = null;
         this.animationFrame = null;
         this.teams = [];
-        this.teamColors = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#A8E6CF', '#FF8B94'];
-        this.teamNames = ['Red', 'Cyan', 'Yellow', 'Green', 'Pink'];
+        this.teamData = [
+            { normal: '#D0D0D0', powered: '#FFFFFF', name: 'White' },
+            { normal: '#D4A574', powered: '#FFA500', name: 'Orange' },
+            { normal: '#C66B6B', powered: '#FF0000', name: 'Red' },
+            { normal: '#6B8EC6', powered: '#0000FF', name: 'Blue' },
+            { normal: '#8BA888', powered: '#6B8E23', name: 'Olive' }
+        ];
+        this.powerPills = [];
+        this.baddies = [];
+        this.startTime = getSyncedTime();
+        this.gameTime = 120000; // 2 minutes in ms
+        this.lastBaddieSpawn = 0;
     }
 
     async init() {
@@ -549,46 +559,68 @@ class PerformChompGame extends Game {
         for (let i = 0; i < 5; i++) {
             this.teams.push({
                 id: i,
-                color: this.teamColors[i],
-                name: this.teamNames[i],
-                x: 200 + (i * 200), // Space them out horizontally
+                colorData: this.teamData[i],
+                name: this.teamData[i].name,
+                startX: 200 + (i * 200),
+                startY: 400,
+                x: 200 + (i * 200),
                 y: 400,
                 vx: 0,
                 vy: 0,
-                angle: 0, // Direction Pacman is facing
-                mouthAngle: 0, // For animating mouth
-                clients: new Map() // clientId -> {dx, dy, timestamp}
+                angle: 0,
+                mouthAngle: 0,
+                powered: false,
+                powerEndTime: 0,
+                score: 0,
+                clients: new Map()
             });
         }
 
-        // Start game loop
+        // Create 20 power pills scattered around
+        for (let i = 0; i < 20; i++) {
+            this.powerPills.push({
+                x: 100 + Math.random() * 1000,
+                y: 100 + Math.random() * 600,
+                active: true
+            });
+        }
+
+        this.startTime = getSyncedTime();
         this.gameLoop();
-
-        // Broadcast game state
         broadcastGameState('chomp', {});
-
         console.log('✓ Chomp game started');
     }
 
     gameLoop() {
         if (!this.active) return;
 
+        const now = getSyncedTime();
+        const elapsed = now - this.startTime;
+        const timeLeft = Math.max(0, this.gameTime - elapsed);
+
         // Clear canvas
         this.ctx.fillStyle = '#1a1a2e';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-        const now = getSyncedTime();
+        // Draw timer and scores at top
+        this.drawHUD(timeLeft);
 
-        // Update and render each team
+        // Spawn baddies occasionally
+        if (now - this.lastBaddieSpawn > 5000 && this.baddies.length < 8) {
+            this.spawnBaddie();
+            this.lastBaddieSpawn = now;
+        }
+
+        // Update teams
         this.teams.forEach(team => {
-            // Clean up old client data (older than 500ms)
+            // Clean up old client data
             for (const [clientId, data] of team.clients.entries()) {
                 if (now - data.timestamp > 500) {
                     team.clients.delete(clientId);
                 }
             }
 
-            // Average direction vectors from all active clients
+            // Average direction vectors
             let sumDx = 0, sumDy = 0;
             team.clients.forEach(data => {
                 sumDx += data.dx;
@@ -599,19 +631,21 @@ class PerformChompGame extends Game {
             if (count > 0) {
                 team.vx = sumDx / count;
                 team.vy = sumDy / count;
-
-                // Update angle based on direction
                 if (team.vx !== 0 || team.vy !== 0) {
                     team.angle = Math.atan2(team.vy, team.vx);
                 }
             } else {
-                // No active clients, slow down
                 team.vx *= 0.95;
                 team.vy *= 0.95;
             }
 
-            // Update position
-            const speed = 3;
+            // Check power-up expiry
+            if (team.powered && now > team.powerEndTime) {
+                team.powered = false;
+            }
+
+            // Update position (faster when powered)
+            const speed = team.powered ? 5 : 3;
             team.x += team.vx * speed;
             team.y += team.vy * speed;
 
@@ -622,10 +656,69 @@ class PerformChompGame extends Game {
             if (team.y > this.canvas.height) team.y = 0;
 
             // Animate mouth
-            team.mouthAngle = (Math.sin(Date.now() / 100) * 0.3) + 0.3; // Oscillate 0 to 0.6
+            team.mouthAngle = (Math.sin(Date.now() / 100) * 0.3) + 0.3;
 
-            // Render individual direction vectors (faint lines)
-            this.ctx.strokeStyle = team.color;
+            // Check collisions with power pills
+            this.powerPills.forEach(pill => {
+                if (pill.active && this.distance(team.x, team.y, pill.x, pill.y) < 35) {
+                    pill.active = false;
+                    team.powered = true;
+                    team.powerEndTime = now + 10000; // 10 seconds
+                    team.score += 5;
+                }
+            });
+        });
+
+        // Update baddies
+        this.baddies.forEach(baddie => {
+            this.updateBaddie(baddie);
+        });
+
+        // Check baddie collisions with pacmans
+        this.baddies.forEach(baddie => {
+            this.teams.forEach(team => {
+                if (this.distance(baddie.x, baddie.y, team.x, team.y) < 35) {
+                    if (team.powered) {
+                        // Pacman eats baddie
+                        baddie.dead = true;
+                        team.score += 20;
+                    } else {
+                        // Baddie eats pacman
+                        team.x = team.startX;
+                        team.y = team.startY;
+                        team.score = Math.max(0, team.score - 20);
+                    }
+                }
+            });
+        });
+
+        // Remove dead baddies
+        this.baddies = this.baddies.filter(b => !b.dead);
+
+        // Draw power pills
+        this.powerPills.forEach(pill => {
+            if (pill.active) {
+                this.ctx.fillStyle = '#FFD700';
+                this.ctx.beginPath();
+                this.ctx.arc(pill.x, pill.y, 8, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+        });
+
+        // Draw baddies
+        this.baddies.forEach(baddie => {
+            if (baddie.type === 'octopus') {
+                this.drawOctopus(baddie);
+            } else {
+                this.drawBee(baddie);
+            }
+        });
+
+        // Draw pacmans
+        this.teams.forEach(team => {
+            // Draw direction vectors
+            const color = team.powered ? team.colorData.powered : team.colorData.normal;
+            this.ctx.strokeStyle = color;
             this.ctx.globalAlpha = 0.2;
             team.clients.forEach(data => {
                 this.ctx.beginPath();
@@ -636,30 +729,108 @@ class PerformChompGame extends Game {
             });
             this.ctx.globalAlpha = 1.0;
 
-            // Render Pacman
             this.drawPacman(team);
 
-            // Render team label
+            // Draw team label
             this.ctx.fillStyle = '#fff';
-            this.ctx.font = '16px Arial';
+            this.ctx.font = '14px Arial';
             this.ctx.textAlign = 'center';
+            const count = team.clients.size;
             this.ctx.fillText(`${team.name} (${count})`, team.x, team.y + 50);
         });
 
-        // Continue loop
         this.animationFrame = requestAnimationFrame(() => this.gameLoop());
+    }
+
+    distance(x1, y1, x2, y2) {
+        return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+    }
+
+    drawHUD(timeLeft) {
+        // Timer
+        const mins = Math.floor(timeLeft / 60000);
+        const secs = Math.floor((timeLeft % 60000) / 1000);
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = 'bold 32px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(`${mins}:${secs.toString().padStart(2, '0')}`, this.canvas.width / 2, 40);
+
+        // Scores
+        this.ctx.font = 'bold 24px Arial';
+        this.ctx.textAlign = 'left';
+        let xPos = 50;
+        this.teams.forEach(team => {
+            this.ctx.fillStyle = team.powered ? team.colorData.powered : team.colorData.normal;
+            this.ctx.fillText(`${team.score}`, xPos, 40);
+            xPos += 150;
+        });
+    }
+
+    spawnBaddie() {
+        const edge = Math.floor(Math.random() * 4); // 0=top, 1=right, 2=bottom, 3=left
+        let x, y;
+        if (edge === 0) { x = Math.random() * this.canvas.width; y = 0; }
+        else if (edge === 1) { x = this.canvas.width; y = Math.random() * this.canvas.height; }
+        else if (edge === 2) { x = Math.random() * this.canvas.width; y = this.canvas.height; }
+        else { x = 0; y = Math.random() * this.canvas.height; }
+
+        this.baddies.push({
+            type: Math.random() < 0.5 ? 'octopus' : 'bee',
+            x, y,
+            vx: 0, vy: 0,
+            animFrame: 0,
+            dead: false
+        });
+    }
+
+    updateBaddie(baddie) {
+        // Find nearest pacman
+        let nearest = null;
+        let nearestDist = Infinity;
+        let nearestPowered = false;
+
+        this.teams.forEach(team => {
+            const dist = this.distance(baddie.x, baddie.y, team.x, team.y);
+            if (dist < nearestDist) {
+                nearestDist = dist;
+                nearest = team;
+                nearestPowered = team.powered;
+            }
+        });
+
+        if (nearest) {
+            const dx = nearest.x - baddie.x;
+            const dy = nearest.y - baddie.y;
+            const mag = Math.sqrt(dx * dx + dy * dy);
+
+            if (mag > 0) {
+                const speed = 3.5; // Faster than normal pacman
+                const dir = nearestPowered ? -1 : 1; // Flee from powered pacmans
+                baddie.vx = (dx / mag) * speed * dir;
+                baddie.vy = (dy / mag) * speed * dir;
+            }
+        }
+
+        baddie.x += baddie.vx;
+        baddie.y += baddie.vy;
+        baddie.animFrame++;
+
+        // Keep on screen
+        baddie.x = Math.max(20, Math.min(this.canvas.width - 20, baddie.x));
+        baddie.y = Math.max(20, Math.min(this.canvas.height - 20, baddie.y));
     }
 
     drawPacman(team) {
         const ctx = this.ctx;
         const radius = 30;
+        const color = team.powered ? team.colorData.powered : team.colorData.normal;
 
         ctx.save();
         ctx.translate(team.x, team.y);
         ctx.rotate(team.angle);
 
         // Draw Pacman body
-        ctx.fillStyle = team.color;
+        ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(0, 0, radius, team.mouthAngle, Math.PI * 2 - team.mouthAngle);
         ctx.lineTo(0, 0);
@@ -670,6 +841,76 @@ class PerformChompGame extends Game {
         ctx.fillStyle = '#000';
         ctx.beginPath();
         ctx.arc(radius / 3, -radius / 3, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    drawOctopus(baddie) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.translate(baddie.x, baddie.y);
+
+        // Body
+        ctx.fillStyle = '#9B59B6';
+        ctx.beginPath();
+        ctx.arc(0, 0, 15, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Twirling tentacles (8 of them)
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2 + baddie.animFrame * 0.05;
+            const wave = Math.sin(baddie.animFrame * 0.1 + i) * 5;
+            ctx.strokeStyle = '#9B59B6';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.quadraticCurveTo(
+                Math.cos(angle) * 10 + wave,
+                Math.sin(angle) * 10,
+                Math.cos(angle) * 20,
+                Math.sin(angle) * 20 + wave
+            );
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    }
+
+    drawBee(baddie) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.translate(baddie.x, baddie.y);
+
+        // Buzzing motion
+        const buzz = Math.sin(baddie.animFrame * 0.3) * 2;
+
+        // Body
+        ctx.fillStyle = '#FFD700';
+        ctx.beginPath();
+        ctx.ellipse(buzz, 0, 12, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Stripes
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(buzz - 6, -5);
+        ctx.lineTo(buzz - 6, 5);
+        ctx.moveTo(buzz, -5);
+        ctx.lineTo(buzz, 5);
+        ctx.moveTo(buzz + 6, -5);
+        ctx.lineTo(buzz + 6, 5);
+        ctx.stroke();
+
+        // Wings (flapping)
+        const wingAngle = Math.sin(baddie.animFrame * 0.5) * 0.3;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.beginPath();
+        ctx.ellipse(-5 + buzz, -8, 8, 4, -0.5 + wingAngle, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(-5 + buzz, 8, 8, 4, 0.5 - wingAngle, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.restore();
