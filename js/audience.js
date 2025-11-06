@@ -83,7 +83,7 @@ async function handleNameSubmit(name) {
         participantTeam = Math.floor(Math.random() * TEAM_COLORS.length);
         localStorage.setItem('crowdplay-team', participantTeam);
     }
-    console.log(`Assigned to team ${participantTeam} (${TEAM_NAMES[participantTeam]})`);
+    console.log(`Assigned to team ${participantTeam} (${TEAM_COLORS[participantTeam].name})`);
 
     // Request wake lock
     await requestWakeLock();
