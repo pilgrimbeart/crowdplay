@@ -157,7 +157,8 @@ function getGameClass(gameName) {
         'qr': PerformQRGame,
         'clap': PerformClapGame,
         'drum': PerformDrumGame,
-        'music': PerformMusicGame
+        'music': PerformMusicGame,
+        'flash': PerformFlashGame
     };
     return gameMap[gameName];
 }
@@ -227,9 +228,9 @@ function monitorParticipants() {
 function listenForLatencyReports() {
     if (!db || !roomId) return;
 
-    const latencyRef = db.ref(`rooms/${roomId}/toPerform`);
+    const messagesRef = db.ref(`rooms/${roomId}/toPerform`);
 
-    latencyRef.on('child_added', (snapshot) => {
+    messagesRef.on('child_added', (snapshot) => {
         const message = snapshot.val();
 
         if (message.type === 'latency') {
@@ -254,6 +255,9 @@ function listenForLatencyReports() {
 
             updateLatencyDisplay();
             sendDiagnostics();
+        } else if (message.type === 'drumHit') {
+            // Play drum sound when audience member hits drum
+            playDrumSound();
         }
 
         snapshot.ref.remove();
@@ -464,6 +468,32 @@ class PerformMusicGame extends Game {
 
     async teardown() {
         stopAudio();
+        await super.teardown();
+    }
+}
+
+class PerformFlashGame extends Game {
+    async init() {
+        await super.init();
+        document.getElementById('perform-display').innerHTML = `
+            <h1 style="font-size: 5rem;">⚡ FLASH SYNC TEST ⚡</h1>
+            <p style="font-size: 2rem;">Watch all devices flash together</p>
+        `;
+
+        // Start flashing every 3 seconds
+        const startTime = getSyncedTime() + 1000;
+        const interval = 3000;
+
+        // Broadcast config to audience
+        this.broadcastFlashConfig(startTime, interval);
+    }
+
+    broadcastFlashConfig(startTime, interval) {
+        // Send flash parameters as part of game config
+        broadcastGameState('flash', { startTime, interval });
+    }
+
+    async teardown() {
         await super.teardown();
     }
 }

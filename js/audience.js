@@ -190,7 +190,8 @@ function getGameClass(gameName) {
         'qr': AudienceQRGame,
         'clap': AudienceClapGame,
         'drum': AudienceDrumGame,
-        'music': AudienceMusicGame
+        'music': AudienceMusicGame,
+        'flash': AudienceFlashGame
     };
     return gameMap[gameName];
 }
@@ -342,12 +343,28 @@ function addMotionListener() {
             if (now - lastDrumHitTime >= DRUM_THROTTLE_MS) {
                 lastDrumHitTime = now;
                 playDrumSound();
+
+                // Send drum hit to Perform
+                sendDrumHitToPerform();
+
                 console.log(`Drum hit! Magnitude: ${magnitude.toFixed(1)}`);
             }
         }
     });
 
     console.log('✓ Drum detection started');
+}
+
+function sendDrumHitToPerform() {
+    if (!db || !roomId) return;
+
+    const drumHitRef = db.ref(`rooms/${roomId}/toPerform`).push();
+    drumHitRef.set({
+        type: 'drumHit',
+        clientId: participantId,
+        name: participantName,
+        timestamp: getSyncedTime()
+    });
 }
 
 // ============================================================================
@@ -422,6 +439,60 @@ class AudienceMusicGame extends Game {
 
     async teardown() {
         stopAudio();
+        await super.teardown();
+    }
+}
+
+class AudienceFlashGame extends Game {
+    async init() {
+        await super.init();
+        const display = document.getElementById('audience-display');
+        display.style.backgroundColor = '#000';
+        display.innerHTML = `
+            <h1 style="font-size: 3rem;">⚡ FLASH TEST ⚡</h1>
+        `;
+
+        // Get flash parameters from config
+        const startTime = this.config.startTime || (getSyncedTime() + 1000);
+        const interval = this.config.interval || 3000;
+
+        this.scheduleFlashes(startTime, interval);
+    }
+
+    scheduleFlashes(startTime, interval) {
+        const display = document.getElementById('audience-display');
+
+        // Schedule repeating flashes
+        const flash = () => {
+            if (!this.active) return;
+
+            const now = getSyncedTime();
+            const nextFlashTime = startTime + Math.ceil((now - startTime) / interval) * interval;
+            const delay = nextFlashTime - now;
+
+            setTimeout(() => {
+                if (!this.active) return;
+
+                // Binary flash - instant white, fade to black
+                display.style.transition = 'none';
+                display.style.backgroundColor = '#fff';
+
+                setTimeout(() => {
+                    if (!this.active) return;
+                    display.style.transition = 'background-color 0.3s ease-out';
+                    display.style.backgroundColor = '#000';
+                }, 50);
+
+                // Schedule next flash
+                setTimeout(flash, interval - 50);
+            }, Math.max(0, delay));
+        };
+
+        flash();
+    }
+
+    async teardown() {
+        document.getElementById('audience-display').style.transition = '';
         await super.teardown();
     }
 }
