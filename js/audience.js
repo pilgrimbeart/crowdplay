@@ -236,13 +236,13 @@ function startDiagnosticsDisplay() {
         const localTime = Date.now();
         const syncedTime = getSyncedTime();
 
-        // Display modulo 100 for easy comparison
-        const localMod100 = Math.floor(localTime % 100);
-        const syncedMod100 = Math.floor(syncedTime % 100);
+        // Display modulo 10,000 (repeats every 10 seconds)
+        const localMod = Math.floor(localTime % 10000);
+        const syncedMod = Math.floor(syncedTime % 10000);
 
-        document.getElementById('diag-local').textContent = localMod100.toString().padStart(2, '0');
+        document.getElementById('diag-local').textContent = localMod.toString().padStart(4, '0');
         document.getElementById('diag-offset').textContent = Math.round(serverTimeOffset) + ' ms';
-        document.getElementById('diag-synced').textContent = syncedMod100.toString().padStart(2, '0');
+        document.getElementById('diag-synced').textContent = syncedMod.toString().padStart(4, '0');
     };
 
     // Update every 50ms for smooth display

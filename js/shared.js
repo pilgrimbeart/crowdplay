@@ -119,53 +119,69 @@ function monitorConnection() {
 function monitorServerTime() {
     if (!db) return;
 
-    const offsetRef = db.ref('.info/serverTimeOffset');
+    console.log('Starting RTT-based time synchronization...');
 
-    const processSample = (firebaseOffset) => {
-        if (syncSampleCount === 0) {
-            serverTimeOffset = firebaseOffset;
-            console.log('Initial server time offset:', serverTimeOffset, 'ms');
-        } else {
-            const oldOffset = serverTimeOffset;
-            serverTimeOffset = SYNC_FILTER_K * serverTimeOffset + (1 - SYNC_FILTER_K) * firebaseOffset;
-            console.log(`Time sync sample ${syncSampleCount + 1}: ${firebaseOffset}ms (filtered: ${Math.round(serverTimeOffset)}ms, prev: ${Math.round(oldOffset)}ms)`);
-        }
-
-        syncSampleCount++;
-
-        if (syncSampleCount >= SYNC_SAMPLES_NEEDED && !isSynced) {
-            isSynced = true;
-            console.log('✓ Time synchronized! Final offset:', Math.round(serverTimeOffset), 'ms');
-        }
-
-        updateSyncStatus();
-    };
-
-    let initialSamplesTaken = 0;
+    // Use RTT-based sync: measure round-trip time to Firebase
     const takeSample = () => {
-        offsetRef.once('value', (snapshot) => {
-            processSample(snapshot.val());
-            initialSamplesTaken++;
+        const t1 = Date.now(); // Client time before send
 
-            if (initialSamplesTaken < SYNC_SAMPLES_NEEDED) {
-                setTimeout(takeSample, 200);
+        const syncRef = db.ref('sync-temp').push();
+
+        syncRef.set({
+            clientSendTime: t1,
+            serverTime: firebase.database.ServerValue.TIMESTAMP
+        }).then(() => {
+            return syncRef.once('value');
+        }).then((snapshot) => {
+            const t2 = Date.now(); // Client time after receive
+            const data = snapshot.val();
+            const serverTime = data.serverTime;
+
+            // Calculate RTT and estimated offset
+            const rtt = t2 - t1;
+            const estimatedServerTimeAtSend = serverTime;
+            const estimatedServerTimeNow = serverTime + (rtt / 2);
+            const estimatedOffset = estimatedServerTimeNow - t2;
+
+            console.log(`RTT sync sample ${syncSampleCount + 1}: RTT=${rtt}ms, offset=${Math.round(estimatedOffset)}ms`);
+
+            // Apply exponential moving average filter
+            if (syncSampleCount === 0) {
+                serverTimeOffset = estimatedOffset;
+                console.log('Initial server time offset:', Math.round(serverTimeOffset), 'ms');
+            } else {
+                const oldOffset = serverTimeOffset;
+                serverTimeOffset = SYNC_FILTER_K * serverTimeOffset + (1 - SYNC_FILTER_K) * estimatedOffset;
+                console.log(`Filtered offset: ${Math.round(serverTimeOffset)}ms (prev: ${Math.round(oldOffset)}ms, raw: ${Math.round(estimatedOffset)}ms)`);
             }
+
+            syncSampleCount++;
+
+            if (syncSampleCount >= SYNC_SAMPLES_NEEDED && !isSynced) {
+                isSynced = true;
+                console.log('✓ Time synchronized! Final offset:', Math.round(serverTimeOffset), 'ms');
+            }
+
+            updateSyncStatus();
+
+            // Clean up temp sync data
+            syncRef.remove();
+
+            // Take more samples during initialization
+            if (syncSampleCount < SYNC_SAMPLES_NEEDED) {
+                setTimeout(takeSample, 300);
+            } else {
+                // After initial sync, resync periodically to handle drift
+                setTimeout(takeSample, 10000); // Resync every 10 seconds
+            }
+        }).catch(err => {
+            console.error('Time sync error:', err);
+            // Retry after delay
+            setTimeout(takeSample, 1000);
         });
     };
 
     takeSample();
-
-    offsetRef.on('value', (snapshot) => {
-        if (isSynced) {
-            const firebaseOffset = snapshot.val();
-            const oldOffset = serverTimeOffset;
-            serverTimeOffset = SYNC_FILTER_K * serverTimeOffset + (1 - SYNC_FILTER_K) * firebaseOffset;
-
-            if (Math.abs(firebaseOffset - oldOffset) > 5) {
-                console.log(`Time drift detected: ${firebaseOffset}ms (filtered: ${Math.round(serverTimeOffset)}ms)`);
-            }
-        }
-    });
 }
 
 function getSyncedTime() {
