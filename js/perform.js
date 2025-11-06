@@ -145,8 +145,8 @@ async function changeGame(gameName, config = {}) {
     currentGame = new GameClass('perform', config);
     await currentGame.init();
 
-    // Broadcast new game state to audience
-    broadcastGameState(gameName, config);
+    // NOTE: Game's init() is responsible for broadcasting state to audience
+    // Don't broadcast here to avoid duplicate broadcasts
 
     // Update diagnostics
     sendDiagnostics();
@@ -415,6 +415,9 @@ class PerformQRGame extends Game {
             width: 300,
             height: 300
         });
+
+        // Broadcast to audience
+        broadcastGameState('qr', {});
     }
 
     async teardown() {
@@ -451,6 +454,9 @@ class PerformDrumGame extends Game {
             <h1 style="font-size: 5rem;">🥁 DRUM! 🥁</h1>
             <p style="font-size: 2rem;">Shake your phone!</p>
         `;
+
+        // Broadcast to audience
+        broadcastGameState('drum', {});
     }
 
     async teardown() {
