@@ -119,13 +119,18 @@ function monitorConnection() {
 function monitorServerTime() {
     if (!db) return;
 
+    if (!roomId) {
+        console.error('Cannot sync time: roomId not set');
+        return;
+    }
+
     console.log('Starting RTT-based time synchronization...');
 
     // Use RTT-based sync: measure round-trip time to Firebase
     const takeSample = () => {
         const t1 = Date.now(); // Client time before send
 
-        const syncRef = db.ref('sync-temp').push();
+        const syncRef = db.ref(`rooms/${roomId}/sync-temp`).push();
 
         syncRef.set({
             clientSendTime: t1,
