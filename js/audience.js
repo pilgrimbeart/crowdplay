@@ -609,7 +609,9 @@ class AudienceFlashGame extends Game {
     }
 
     async teardown() {
-        document.getElementById('audience-display').style.transition = '';
+        const display = document.getElementById('audience-display');
+        display.style.transition = '';
+        display.style.backgroundColor = '';
         await super.teardown();
     }
 }

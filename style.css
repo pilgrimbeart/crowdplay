@@ -249,13 +249,28 @@ kbd {
     background: #667eea;
 }
 
-.fullscreen-display {
+/* Disabled for debugging - uncomment to restore fullscreen */
+/*.fullscreen-display {
     width: 100vw;
     height: 100vh;
     display: flex;
     justify-content: center;
     align-items: center;
     transition: background-color 0.3s ease;
+}*/
+
+/* Debugging mode - smaller display */
+.fullscreen-display {
+    width: 100%;
+    max-width: 800px;
+    height: 600px;
+    margin: 2rem auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: background-color 0.3s ease;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 12px;
 }
 
 #participant-status {
